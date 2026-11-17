@@ -1,23 +1,38 @@
 {
   "name": "@juslink/agent-center-ui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "智链平台 Agent 能力与任务中心 UI 接通验证",
   "type": "module",
   "license": "UNLICENSED",
-  "files": ["index.js", "client.js", "cordis.patch.yml", "README.md"],
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
     "./package.json": "./package.json",
     "./cordis.patch.yml": "./cordis.patch.yml"
   },
-  "engines": { "dsh": ">=0.2.2-rc.2 <0.3.0" },
+  "engines": {
+    "dsh": "0.2.1-rc.5 || >=0.2.2-rc.2 <0.3.0"
+  },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-client-ui-layout", "@deepseek-ai/dsh-client-ui-sidebar"],
-      "external": ["react"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
+      "external": [
+        "react"
+      ]
     }
   }
 }
