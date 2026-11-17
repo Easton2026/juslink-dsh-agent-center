@@ -1,11 +1,12 @@
 {
   "name": "@juslink/agent-center-ui",
-  "version": "0.1.2",
-  "description": "智链平台 Agent 能力与任务中心 UI 接通验证",
+  "version": "0.2.0",
+  "description": "智链平台 Agent 能力与任务中心，含模拟货物查询工具与运输分析 Skill",
   "type": "module",
   "license": "UNLICENSED",
   "files": [
     "index.js",
+    "demo-data.js",
     "client.js",
     "cordis.patch.yml",
     "README.md"
