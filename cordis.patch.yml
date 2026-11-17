@@ -1,0 +1,3 @@
+- insert:
+    - id: juslink-agent-center-ui
+      name: '@juslink/agent-center-ui'
