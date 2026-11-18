@@ -36,6 +36,8 @@ let rememberedTab = 'home';
 let lastSkillSession;
 let skillLaunchPending = false;
 let capabilityLaunchPending = false;
+let lastExpertSession;
+let rememberedExpertScope = 'platform';
 function CapabilityIcon({ kind }) {
   const paths = {
     box: ['m3 7 9-4 9 4-9 4-9-4Z', 'M3 7v10l9 4 9-4V7', 'M12 11v10', 'm7.5 5 9 4'],
@@ -51,20 +53,60 @@ function CapabilityIcon({ kind }) {
 function CapabilityPage({ ctx }) {
   const [pending, setPending] = useState(null);
   const [error, setError] = useState('');
-  const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const [scope, setScope] = useState(rememberedExpertScope);
+  const [experts, setExperts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState('');
+  const [needsSession, setNeedsSession] = useState(false);
+  const alive = useRef({ active: true, request: 0 });
+  function selectScope(value) { rememberedExpertScope = value; setScope(value); }
+  async function refresh() {
+    const seq = ++alive.current.request;
+    setLoading(true); setCatalogError('');
+    try {
+      const result = await SkillFlow.listExperts(ctx, lastExpertSession);
+      if (!alive.current.active || seq !== alive.current.request) return;
+      setExperts(result.experts); setNeedsSession(result.needsSession);
+    } catch (reason) {
+      if (alive.current.active && seq === alive.current.request) setCatalogError('读取个人专家失败：' + (reason.message || String(reason)));
+    } finally {
+      if (alive.current.active && seq === alive.current.request) setLoading(false);
+    }
+  }
+  useEffect(() => {
+    alive.current.active = true;
+    void refresh();
+    const onFocus = () => { void refresh(); };
+    window.addEventListener('focus', onFocus);
+    return () => { alive.current.active = false; ++alive.current.request; window.removeEventListener('focus', onFocus); };
+  }, []);
   async function start(entry) {
     if (capabilityLaunchPending) return;
     capabilityLaunchPending = true; setPending(entry.id); setError('');
-    try { await SkillFlow.launch(ctx, entry.prompt); }
-    catch (reason) { if (alive.current) setError('未能发起对话：' + (reason.message || String(reason))); }
-    finally { capabilityLaunchPending = false; if (alive.current) setPending(null); }
+    try { await SkillFlow.launch(ctx, entry.prompt, id => { if (entry.scope === 'personal' || entry.id === 'create-expert') lastExpertSession = id; }); }
+    catch (reason) { if (alive.current.active) setError('未能发起对话：' + (reason.message || String(reason))); }
+    finally { capabilityLaunchPending = false; if (alive.current.active) setPending(null); }
   }
+  function createExpert() {
+    selectScope('personal');
+    void start({ id: 'create-expert', prompt: SkillFlow.expertCreationPrompt() });
+  }
+  const visible = scope === 'platform' ? EXPERT_ENTRIES : experts;
   return h('section', { className: 'jlc-launch' },
-    h('h1', { className: 'jlc-launch-heading' }, '场景专家'),
-    h('div', { className: 'jlc-workflows' }, ...EXPERT_ENTRIES.map(entry => h('article', { key: entry.id, className: 'jlc-workflow' },
+    h('div', { className: 'jlc-expert-heading' }, h('h1', { className: 'jlc-launch-heading' }, '场景专家'),
+      h('div', { className: 'jlc-expert-actions' }, button('刷新', refresh, { disabled: loading, className: 'jlc-quiet', 'aria-label': '刷新我的场景专家' }),
+        button(pending === 'create-expert' ? '正在打开…' : '＋ 新建场景专家', createExpert, { disabled: !!pending, className: 'jlc-primary' }))),
+    h('div', { className: 'jlc-skill-scopes jlc-expert-scopes', role: 'tablist', 'aria-label': '场景专家来源' },
+      ...[['platform', '平台提供', EXPERT_ENTRIES.length], ['personal', '我的专家', loading ? '…' : experts.length]].map(([key, label, count]) => button(label + ' · ' + count, () => selectScope(key), { key, role: 'tab', 'aria-selected': scope === key, className: scope === key ? 'selected' : '' }))),
+    catalogError && h('p', { className: 'jlc-skill-error', role: 'alert' }, catalogError),
+    scope === 'personal' && loading && !experts.length ? h('p', { className: 'jlc-muted', role: 'status' }, '正在读取我的场景专家…') :
+    visible.length ? h('div', { className: 'jlc-workflows' }, ...visible.map(entry => h('article', { key: entry.id, className: 'jlc-workflow' },
       h('h2', null, entry.title), h('p', null, entry.description),
-      button(pending === entry.id ? '正在打开…' : entry.action, () => start(entry), { disabled: !!pending, className: 'jlc-workflow-start', 'aria-label': entry.action + '：' + entry.title })))),
+      button(pending === entry.id ? '正在打开…' : entry.action, () => start(entry), { disabled: !!pending, className: 'jlc-workflow-start', 'aria-label': entry.action + '：' + entry.title })))) :
+      !catalogError && h('div', { className: 'jlc-expert-empty' }, h('h2', null, '创建你的第一个场景专家'),
+        h('p', null, needsSession ? '点击新建，在 DSH 对话中描述你想解决的问题。' : '描述业务目标，让 DSH 帮你组合工具、整理步骤，保存为可重复使用的专家。'),
+        button('新建场景专家', createExpert, { disabled: !!pending, className: 'jlc-workflow-start' })),
+    scope === 'personal' && h('p', { className: 'jlc-muted jlc-expert-note' }, '保存在当前 DSH 用户的个人技能中。创建并保存成功后，返回这里刷新查看。'),
     error && h('p', { role: 'alert', className: 'jlc-skill-error' }, error),
     h(React.Fragment, null,
       h('h2', { className: 'jlc-launch-heading jlc-tools-heading' }, '工具'),
@@ -72,7 +114,7 @@ function CapabilityPage({ ctx }) {
         h('span', { className: 'jlc-tool-icon' }, h(CapabilityIcon, { kind: entry.icon })),
         h('span', { className: 'jlc-tool-text' }, h('strong', null, entry.title), h('span', null, pending === entry.id ? '正在打开新对话…' : entry.description)),
         h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '↗'))))),
-    h('p', { className: 'jlc-launch-note' }, '模拟体验 · 点击后在新对话中开始，默认使用演示单号 DEMO-SH-001；所有结果均为固定演示数据。'));
+    h('p', { className: 'jlc-launch-note' }, '平台专家与工具默认使用演示样例 DEMO-SH-001，业务查询结果为固定模拟数据；我的专家会先询问本次任务所需的信息。'));
 }
 function SkillPage({ ctx }) {
   const [scope, setScope] = useState('platform');

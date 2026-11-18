@@ -2,6 +2,7 @@ import { DEMO_SHIPMENT, DEMO_SNAPSHOT_AT } from './demo-data.js';
 import { AUTHORING_SKILL_NAME, AUTHORING_INSTRUCTIONS } from './skill-authoring.js';
 import { createMockTools } from './mock-tools.js';
 import { createArtifactTool } from './artifact-store.js';
+import { EXPERT_AUTHORING_SKILL_NAME, expertAuthoringInstructions } from './expert-authoring.js';
 
 export const name = 'juslink-agent-center';
 export const inject = ['tools', 'skills', 'workingDirectory'];
@@ -93,9 +94,15 @@ export const ARTIFACT_SKILL = `# 把成果保存到智链平台
 5. 失败时说明工具返回的具体原因（如内容不是 HTML、超过大小上限、目录不可写），不要用猜测代替结果。`;
 
 export function apply(ctx) {
-  ctx.tools.register(createShipmentTool());
-  for (const tool of createMockTools()) ctx.tools.register(tool);
-  ctx.tools.register(createArtifactTool(ctx));
+  const tools = [createShipmentTool(), ...createMockTools(), createArtifactTool(ctx)];
+  for (const tool of tools) ctx.tools.register(tool);
+  ctx.skills.register({
+    name: EXPERT_AUTHORING_SKILL_NAME,
+    description: '从智链平台新建个人场景专家时使用。先询问目标，拆解步骤并核对实际可用工具，确认方案后保存为当前用户的文件技能。',
+    source: 'bundled', invocation: { modelInvocable: false, userInvocable: true },
+    metadata: { plugin: '@juslink/agent-center-ui', scope: 'platform', internal: true },
+    content: expertAuthoringInstructions(tools),
+  });
   ctx.skills.register({
     name: ARTIFACT_SKILL_NAME,
     description: '把对话中生成的 HTML 成果保存到智链平台成果中心并在页面内查看时使用。先确认内容已生成，再调用保存工具，结果以工具返回为准。',

@@ -1,6 +1,6 @@
 {
   "name": "@juslink/agent-center-ui",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "智链平台场景专家、模拟业务工具与个人工作方法",
   "type": "module",
   "license": "UNLICENSED",
@@ -13,7 +13,8 @@
     "skill-authoring.js",
     "capability-catalog.js",
     "mock-tools.js",
-    "artifact-store.js"
+    "artifact-store.js",
+    "expert-authoring.js"
   ],
   "exports": {
     ".": "./index.js",
