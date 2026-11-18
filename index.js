@@ -1,7 +1,10 @@
 import { DEMO_SHIPMENT, DEMO_SNAPSHOT_AT } from './demo-data.js';
+import { AUTHORING_SKILL_NAME, AUTHORING_INSTRUCTIONS } from './skill-authoring.js';
+import { createMockTools } from './mock-tools.js';
+import { createArtifactTool } from './artifact-store.js';
 
 export const name = 'juslink-agent-center';
-export const inject = ['tools', 'skills'];
+export const inject = ['tools', 'skills', 'workingDirectory'];
 export const TOOL_NAME = 'juslink_shipment_lookup';
 export const SKILL_NAME = 'juslink-transport-analysis';
 export const TRANSPORT_ANALYSIS = `# 智链运输情况分析
@@ -71,12 +74,46 @@ export function createShipmentTool() {
   };
 }
 
+export const ARTIFACT_SKILL_NAME = 'juslink-artifact-publish';
+export const ARTIFACT_SKILL = `# 把成果保存到智链平台
+
+适用于用户要求把已生成的报告、看板、图表或说明页保存到智链平台，或在生成 HTML 后说“保存到成果中心”。
+
+## 边界
+- 只保存本次对话已经生成的 HTML，不抓取外部网页，不访问业务系统。
+- 页面以禁用脚本的沙箱渲染：不要依赖脚本、表单或需要登录的外部资源；样式请内联。
+- 保存成功只能以工具返回结果为准，不得在工具失败或未调用时声称“已保存”。
+- 不把成果写入数据库、不发布平台技能、不改动插件目录。
+
+## 执行方法
+1. 先生成完整 HTML：内联样式、无脚本、内容自包含。单个文件不超过 2 MB。
+2. 用一句话向用户说明成果标题与要点，再调用 juslink_artifact_save，title 填中文标题，html 填完整内容，summary 填一两句说明。
+3. 等待工具结果。成功时以返回的 relativePath 与 total 作为依据。
+4. 告知用户到「智链平台 → 成果中心」刷新查看；页面用沙箱渲染，脚本不会执行。
+5. 失败时说明工具返回的具体原因（如内容不是 HTML、超过大小上限、目录不可写），不要用猜测代替结果。`;
+
 export function apply(ctx) {
   ctx.tools.register(createShipmentTool());
+  for (const tool of createMockTools()) ctx.tools.register(tool);
+  ctx.tools.register(createArtifactTool(ctx));
+  ctx.skills.register({
+    name: ARTIFACT_SKILL_NAME,
+    description: '把对话中生成的 HTML 成果保存到智链平台成果中心并在页面内查看时使用。先确认内容已生成，再调用保存工具，结果以工具返回为准。',
+    source: 'bundled', invocation: { modelInvocable: true, userInvocable: true },
+    metadata: { plugin: '@juslink/agent-center-ui', scope: 'platform', display_name: '成果保存到平台' },
+    content: ARTIFACT_SKILL,
+  });
   ctx.skills.register({
     name: SKILL_NAME,
     description: '查询或分析一票货的运输情况、预计延误和依据时使用。先调用智链模拟工具，再比较计划与预计时间，明确演示数据和信息缺口。',
     source: 'bundled', invocation: { modelInvocable: true, userInvocable: true },
+    metadata: { plugin: '@juslink/agent-center-ui', scope: 'platform', display_name: '运输情况分析' },
     content: TRANSPORT_ANALYSIS,
+  });
+  ctx.skills.register({
+    name: AUTHORING_SKILL_NAME, description: '从智链平台新增个人工作方法时使用，指导创建、实际保存并关联智链平台。',
+    source: 'bundled', invocation: { modelInvocable: false, userInvocable: true },
+    metadata: { plugin: '@juslink/agent-center-ui', scope: 'platform', internal: true },
+    content: AUTHORING_INSTRUCTIONS,
   });
 }

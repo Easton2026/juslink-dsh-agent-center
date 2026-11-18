@@ -1,0 +1,9 @@
+node_modules/
+backups/
+dist/
+juslink-artifacts/
+.dsh/
+.env
+.env.*
+.DS_Store
+*.log

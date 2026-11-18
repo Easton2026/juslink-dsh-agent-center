@@ -1,7 +1,7 @@
 {
   "name": "@juslink/agent-center-ui",
-  "version": "0.2.0",
-  "description": "智链平台 Agent 能力与任务中心，含模拟货物查询工具与运输分析 Skill",
+  "version": "0.2.2",
+  "description": "智链平台场景专家、模拟业务工具与个人工作方法",
   "type": "module",
   "license": "UNLICENSED",
   "files": [
@@ -9,7 +9,11 @@
     "demo-data.js",
     "client.js",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "skill-authoring.js",
+    "capability-catalog.js",
+    "mock-tools.js",
+    "artifact-store.js"
   ],
   "exports": {
     ".": "./index.js",
@@ -29,11 +33,18 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar"
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-skill"
       ],
       "external": [
         "react"
       ]
     }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "pack:demo": "python3 release/package_release.py"
   }
 }
