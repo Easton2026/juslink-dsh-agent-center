@@ -8,6 +8,6 @@ export const TOOL_ENTRIES = [
   { id: 'risk', title: '运输风险', description: '识别预计到港偏差，查看风险依据和跟进建议。', icon: 'shield', tool: 'juslink_risk_lookup', prompt: '检查 DEMO-SH-001 的演示运输风险，请调用 juslink_risk_lookup，区分已知事实和待确认信息。' + demo },
 ];
 export const EXPERT_ENTRIES = [
-  { id: 'logistics', title: '物流综合分析', description: '综合运输、到港、关务和港口信息，形成一票货的整体分析。', action: '开始分析', prompt: '请作为智链平台的“物流综合分析”场景专家，分析 DEMO-SH-001。先调用 juslink_shipment_lookup、juslink_arrival_lookup、juslink_customs_lookup，再调用 juslink_port_lookup 查询新加坡港；按需要补充运输节点与风险工具。基于各工具返回内容给出结论、依据、信息缺口与建议，避免把预计节点当作实际发生。' + demo },
-  { id: 'exceptions', title: '运输异常跟进', description: '核对时间偏差和风险信号，整理需要确认的问题与后续行动。', action: '开始跟进', prompt: '请作为智链平台的“运输异常跟进”场景专家，跟进 DEMO-SH-001。调用 juslink_risk_lookup 和 juslink_milestones_lookup，必要时用 juslink_arrival_lookup 核对时间。先说明异常是否已确认，再整理跟进清单；不能编造延误原因或声称已发送通知。' + demo },
+  { id: 'logistics', title: '物流综合分析', description: '按业务单号查看运输进度、最近节点与预计到达时间。', action: '开始分析', prompt: '请询问我要分析的业务类型和单号，然后使用当前授权的智链 MCP 搜索订阅，精确核对记录，再查询追踪详情。按实际返回分析运输进度，区分预计和实际节点，说明缺失的信息。' },
+  { id: 'exceptions', title: '运输异常跟进', description: '查看已记录的异常，整理需要确认的问题与后续行动。', action: '开始跟进', prompt: '请询问我要跟进的业务范围或单号。使用当前授权的智链 MCP 搜索订阅，再按已核实的记录读取异常和节点；基于实际结果区分已确认的异常与待核实事项。' },
 ];
