@@ -60,7 +60,300 @@ const toolLabels = new Map([
 function gatewayEntry(tool) {
   const [label, summary, icon] = toolLabels.get(tool.name) || [];
   return { id: tool.name, title: label || tool.title || tool.name, description: summary || tool.summary, icon,
-    prompt: '请使用当前智链 SIT 授权的 mcp__juslink__' + tool.name + '。先问我本次业务需求，补齐必要信息后调用工具，按实际返回回答。仅查询时不要新增或修改订阅。' };
+    prompt: tool.name === 'sky-vigil-find-subscriptions' ? '查一票智链订阅' : '帮我' + (label || tool.title || tool.name) + '。使用当前智链授权，信息够了就直接办理，只问本次缺的必要信息。用中文简短给我业务结果。新增、修改或删除订阅时以我的明确要求为准。' };
+}
+function statusTone(text) {
+  const s = String(text || '');
+  if (!s) return 'neutral';
+  if (/异常|延误|扣留|失败|退单|查验|甩柜|滞留|超期/.test(s)) return 'danger';
+  if (/变更|推迟|等待|采集/.test(s)) return 'warn';
+  if (/抵港|到港|送达|签收|放行|还空|结关|完成/.test(s)) return 'success';
+  if (/离港|在途|装船|起飞|派送|进港|提空/.test(s)) return 'info';
+  return 'neutral';
+}
+const MODE_LABELS = { VESSEL: '海运', TRUCK: '卡车', RAIL: '铁路', AIR: '空运', EXPRESS: '快递', M: '主单', H: '分单' };
+const RECEIVE_LABELS = { IN_COLLECTING: ['采集中', 'warn'], FAILED: ['采集失败', 'danger'] };
+function CopyButton({ value }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return null;
+  function onCopy() {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(value).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      }).catch(() => {});
+    }
+  }
+  return h('button', { type: 'button', className: 'jlc-copy-btn' + (copied ? ' copied' : ''), onClick: onCopy, title: '复制单号', 'aria-label': copied ? '已复制单号' : '复制单号 ' + value },
+    copied ? '已复制' : '复制');
+}
+function formatTimeTag(time, zone) {
+  if (!time) return '';
+  return zone ? `${time} (${zone})` : time;
+}
+function ArrivalBanner({ arrival, warnings, errorMsg }) {
+  const currentWarnCount = Array.isArray(warnings) ? warnings.filter(w => w.current).length : 0;
+  const delayChange = arrival?.changes?.find(c => c.changeText);
+  if (!arrival?.hintText && !arrival?.etaChangeText && !currentWarnCount && !errorMsg) return null;
+  const tone = errorMsg ? 'danger' : (arrival?.etaChangeCount > 0 || currentWarnCount > 0) ? 'warn' : 'info';
+  return h('div', { className: 'jlc-banner ' + tone },
+    arrival?.hintText && h('span', { className: 'jlc-banner-main' }, arrival.hintText),
+    arrival?.etaChangeText && h('span', { className: 'jlc-banner-chip warn' },
+      arrival.etaChangeText + (delayChange?.changeText ? ' · ' + delayChange.changeText : '')),
+    currentWarnCount > 0 && h('span', { className: 'jlc-banner-chip danger' }, currentWarnCount + ' 条当前预警'),
+    errorMsg && h('span', { className: 'jlc-banner-chip danger' }, errorMsg));
+}
+function MilestoneStepper({ milestones }) {
+  if (!Array.isArray(milestones) || !milestones.length) return null;
+  const doneCount = milestones.filter(m => m.done).length;
+  let lastDone = -1;
+  milestones.forEach((m, i) => { if (m.done) lastDone = i; });
+  return h('div', { className: 'jlc-stepper-wrap' },
+    h('div', { className: 'jlc-stepper-head' },
+      h('span', null, '运输里程碑'),
+      h('span', { className: 'jlc-stepper-ratio' }, `已完成 ${doneCount} / ${milestones.length}`)),
+    h('div', { className: 'jlc-stepper', role: 'list' },
+      ...milestones.map((m, idx) => {
+        const cls = m.warning ? 'warn' : (idx === lastDone ? 'current' : m.done ? 'done' : 'pending');
+        const tip = [m.name, m.shortTime ? formatTimeTag(m.shortTime, m.zone) : '未发生', m.total > 0 ? `${m.completed}/${m.total}箱` : ''].filter(Boolean).join(' · ');
+        return h('div', { key: idx, className: 'jlc-step ' + cls, role: 'listitem', title: tip },
+          h('span', { className: 'jlc-step-dot', 'aria-hidden': true }),
+          h('span', { className: 'jlc-step-name' }, m.name));
+      })));
+}
+function EventTimeline({ events, nodes }) {
+  if (Array.isArray(events) && events.length) {
+    return h('details', { className: 'jlc-fold' },
+      h('summary', null, `完整轨迹事件 (${events.length})`),
+      h('ol', { className: 'jlc-timeline' }, ...events.map((ev, i) =>
+        h('li', { key: i, className: 'jlc-tl-item' + (ev.estimated ? ' est' : ' act') + (ev.warning ? ' warn' : '') },
+          h('span', { className: 'jlc-tl-dot', 'aria-hidden': true }),
+          h('div', { className: 'jlc-tl-body' },
+            h('div', { className: 'jlc-tl-top' },
+              h('span', { className: 'jlc-tl-tag ' + (ev.estimated ? 'est' : 'act') }, ev.estimated ? '预计' : '实际'),
+              h('strong', { className: 'jlc-tl-title' }, ev.desc || ev.code || '节点更新'),
+              ev.mode && h('span', { className: 'jlc-tl-mode' }, MODE_LABELS[ev.mode] || ev.mode),
+              h('span', { className: 'jlc-tl-time' }, formatTimeTag(ev.time, ev.zone))),
+            h('div', { className: 'jlc-tl-sub' },
+              [ev.location, ev.facility, ev.vessel && (ev.vessel + (ev.voyage ? ' / ' + ev.voyage : '')), ev.containerNo && (ev.containerNo + (ev.containerType ? ' · ' + ev.containerType : ''))].filter(Boolean).join(' · ')))))));
+  }
+  if (Array.isArray(nodes) && nodes.length) {
+    return h('details', { className: 'jlc-fold' },
+      h('summary', null, `查看运输节点 (${nodes.length})`),
+      h('ol', { className: 'jlc-timeline' }, ...nodes.map((n, i) =>
+        h('li', { key: i, className: 'jlc-tl-item' + (n.estimated ? ' est' : ' act') },
+          h('span', { className: 'jlc-tl-dot', 'aria-hidden': true }),
+          h('div', { className: 'jlc-tl-body' },
+            h('div', { className: 'jlc-tl-top' },
+              h('span', { className: 'jlc-tl-tag ' + (n.estimated ? 'est' : 'act') }, n.estimated ? '预计' : '实际'),
+              h('strong', { className: 'jlc-tl-title' }, n.name),
+              h('span', { className: 'jlc-tl-time' }, formatTimeTag(n.time, n.zone))),
+            n.place && h('div', { className: 'jlc-tl-sub' }, n.place))))));
+  }
+  return null;
+}
+function WarningsFold({ warnings }) {
+  if (!Array.isArray(warnings) || !warnings.length) return null;
+  const active = warnings.filter(w => w.current).length;
+  return h('details', { className: 'jlc-fold' },
+    h('summary', null, `预警与变更记录 (${warnings.length}${active ? ` · ${active} 条当前` : ''})`),
+    h('ul', { className: 'jlc-warn-list' }, ...warnings.map((w, i) =>
+      h('li', { key: i, className: 'jlc-warn-item' + (w.current ? ' current' : '') },
+        h('div', { className: 'jlc-warn-head' },
+          h('span', { className: 'jlc-warn-flag' }, w.current ? '当前' : '历史'),
+          h('strong', null, w.name || w.code || '预警'),
+          w.time && h('span', { className: 'jlc-tl-time' }, formatTimeTag(w.time, w.zone))),
+        w.description && h('p', { className: 'jlc-warn-desc' }, w.description)))));
+}
+function EtaHistoryFold({ arrival }) {
+  if (!arrival?.changes?.length) return null;
+  return h('details', { className: 'jlc-fold' },
+    h('summary', null, `ETA 变更记录 (${arrival.changes.length})`),
+    h('ul', { className: 'jlc-warn-list' }, ...arrival.changes.map((c, i) =>
+      h('li', { key: i, className: 'jlc-warn-item current' },
+        h('div', { className: 'jlc-warn-head' },
+          h('span', { className: 'jlc-warn-flag' }, c.changeText || '变更'),
+          h('span', { className: 'jlc-warn-desc' }, `${c.before || '原预计'} → ${c.after || '新预计'}`))))));
+}
+function ShipmentSummaryCard({ row, compact = false }) {
+  const tracking = row.tracking;
+  const status = row.status || tracking?.arrival?.statusText || '订阅记录';
+  const recvBadge = RECEIVE_LABELS[row.receiveStatus];
+  const podShort = tracking?.arrival?.mainShortTime || row.podTime?.shortTime || '';
+  const podZone = tracking?.arrival?.mainZone || row.podTime?.zone || '';
+  const podLabel = tracking?.arrival?.mainTimeLabel || (row.podTime ? (row.podTime.estimated ? '预计' : '实际') + row.podTime.label : '');
+  const midLabel = [
+    tracking?.durationDays ? `海运约 ${tracking.durationDays} 天` : '',
+    row.tp ? `经 ${row.tp}` : (row.viaPort ? `经 ${row.viaPort}` : ''),
+  ].filter(Boolean).join(' · ');
+
+  const containerSummary = row.containers?.length
+    ? row.containers.slice(0, 2).map(c => c.type ? `${c.no} (${c.type})` : c.no).join('、') + (row.containers.length > 2 ? ` 等 ${row.containers.length} 箱` : '')
+    : '';
+  const metaItems = [
+    ['承运商', [row.carrier, row.carrierCode].filter(Boolean).join(' · ')],
+    ['船名 / 航次', [row.vessel, row.voyage].filter(Boolean).join(' / ')],
+    ['集装箱', containerSummary],
+    ['订舱号', row.booking && row.booking !== row.number ? row.booking : ''],
+    ['报关单号', row.declaration && row.declaration !== row.number ? row.declaration : ''],
+    ['业务号', row.businessNo && row.businessNo !== row.number ? row.businessNo : ''],
+    ['进出口', row.direction === 'I' ? '进口' : row.direction === 'E' ? '出口' : ''],
+    ['清关方式', row.transportMode === 'O' ? '海运清关' : row.transportMode === 'A' ? '空运清关' : ''],
+    ['数据更新', row.lastUpdated],
+  ].filter(([, v]) => v);
+
+  return h('article', { className: 'jlc-card jlc-shipment' + (compact ? ' compact' : '') },
+    h('header', { className: 'jlc-card-head' },
+      h('div', { className: 'jlc-card-id' },
+        h('span', { className: 'jlc-kind-tag' }, row.businessLabel || '物流订阅'),
+        h('strong', { className: 'jlc-bill-no' }, row.number || '未知单号'),
+        h(CopyButton, { value: row.number })),
+      h('div', { className: 'jlc-card-badges' },
+        recvBadge && h('span', { className: 'jlc-badge ' + recvBadge[1] }, recvBadge[0]),
+        h('span', { className: 'jlc-badge ' + statusTone(status) }, status))),
+    h(ArrivalBanner, { arrival: tracking?.arrival, warnings: tracking?.warnings, errorMsg: row.errorMsg }),
+    (row.from || row.to) && h('div', { className: 'jlc-route' },
+      h('div', { className: 'jlc-port' },
+        h('div', { className: 'jlc-port-name' }, row.from || '起运地未提供', row.fromCode && h('span', { className: 'jlc-port-code' }, row.fromCode)),
+        row.polTime && h('div', { className: 'jlc-port-time' },
+          `${row.polTime.estimated ? '预计' : '实际'}${row.polTime.label} · ${formatTimeTag(row.polTime.shortTime || row.polTime.time, row.polTime.zone)}`)),
+      h('div', { className: 'jlc-route-mid', 'aria-hidden': true },
+        midLabel && h('span', { className: 'jlc-route-chip' }, midLabel),
+        h('span', { className: 'jlc-route-line' })),
+      h('div', { className: 'jlc-port jlc-port-end' },
+        h('div', { className: 'jlc-port-name' }, row.to || '目的地未提供', row.toCode && h('span', { className: 'jlc-port-code' }, row.toCode)),
+        podShort && h('div', { className: 'jlc-port-time' },
+          `${podLabel} · ${formatTimeTag(podShort, podZone)}`))),
+    metaItems.length > 0 && h('dl', { className: 'jlc-meta-grid' },
+      ...metaItems.map(([k, v]) => h('div', { key: k, className: 'jlc-meta-cell' }, h('dt', null, k), h('dd', null, v)))),
+    tracking?.customsMeta && h('div', { className: 'jlc-customs-strip' },
+      tracking.customsMeta.mode && h('span', null, tracking.customsMeta.mode),
+      tracking.customsMeta.status && h('span', null, '状态：' + tracking.customsMeta.status),
+      tracking.customsMeta.isf && h('span', null, 'ISF：' + tracking.customsMeta.isf),
+      tracking.customsMeta.hblCount > 0 && h('span', null, `分单 ${tracking.customsMeta.hblCount} 票`),
+      tracking.customsMeta.heldCount > 0 && h('span', { className: 'danger' }, `扣留 ${tracking.customsMeta.heldCount} 票`)),
+    h(MilestoneStepper, { milestones: tracking?.milestones }),
+    h('div', { className: 'jlc-folds' },
+      h(EventTimeline, { events: tracking?.events, nodes: row.nodes }),
+      h(WarningsFold, { warnings: tracking?.warnings }),
+      h(EtaHistoryFold, { arrival: tracking?.arrival })));
+}
+function TrackingDetailCard({ item }) {
+  const status = item.arrival?.statusText || (item.milestones?.filter(m => m.done).at(-1)?.name) || '追踪详情';
+  const polPort = item.ports?.find(p => p.type === 'POL');
+  const podPort = item.ports?.find(p => p.type === 'POD');
+  const fromName = item.from || polPort?.name || '';
+  const toName = item.to || podPort?.name || '';
+  const polWhen = polPort?.atd || polPort?.etd;
+  const podWhen = podPort?.ata || podPort?.eta;
+  const containerSummary = item.containers?.length
+    ? item.containers.slice(0, 2).map(c => c.type ? `${c.no} (${c.type})` : c.no).join('、') + (item.containers.length > 2 ? ` 等 ${item.containers.length} 箱` : '')
+    : '';
+  const metaItems = [
+    ['承运商', [item.carrier, item.carrierCode].filter(Boolean).join(' · ')],
+    ['船名 / 航次', [item.vessel, item.voyage].filter(Boolean).join(' / ')],
+    ['集装箱', containerSummary],
+    ['数据更新', item.lastUpdated],
+  ].filter(([, v]) => v);
+
+  return h('article', { className: 'jlc-card jlc-tracking' },
+    h('header', { className: 'jlc-card-head' },
+      h('div', { className: 'jlc-card-id' },
+        h('span', { className: 'jlc-kind-tag' }, (item.businessLabel || '物流') + ' · 追踪详情'),
+        item.number && h('strong', { className: 'jlc-bill-no' }, item.number),
+        h(CopyButton, { value: item.number })),
+      h('span', { className: 'jlc-badge ' + statusTone(status) }, status)),
+    h(ArrivalBanner, { arrival: item.arrival, warnings: item.warnings }),
+    (fromName || toName) && h('div', { className: 'jlc-route' },
+      h('div', { className: 'jlc-port' },
+        h('div', { className: 'jlc-port-name' }, fromName || '起运地', (item.fromCode || polPort?.code) && h('span', { className: 'jlc-port-code' }, item.fromCode || polPort?.code)),
+        polWhen && h('div', { className: 'jlc-port-time' }, (polPort?.atd ? '实际离港 · ' : '预计离港 · ') + formatTimeTag(polWhen.shortText, polWhen.zone))),
+      h('div', { className: 'jlc-route-mid', 'aria-hidden': true },
+        item.durationDays && h('span', { className: 'jlc-route-chip' }, `海运约 ${item.durationDays} 天`),
+        h('span', { className: 'jlc-route-line' })),
+      h('div', { className: 'jlc-port jlc-port-end' },
+        h('div', { className: 'jlc-port-name' }, toName || '目的地', (item.toCode || podPort?.code) && h('span', { className: 'jlc-port-code' }, item.toCode || podPort?.code)),
+        (item.arrival?.mainShortTime || podWhen) && h('div', { className: 'jlc-port-time' },
+          item.arrival?.mainShortTime
+            ? `${item.arrival.mainTimeLabel} · ${formatTimeTag(item.arrival.mainShortTime, item.arrival.mainZone)}`
+            : (podPort?.ata ? '实际抵港 · ' : '预计抵港 · ') + formatTimeTag(podWhen.shortText, podWhen.zone)))),
+    metaItems.length > 0 && h('dl', { className: 'jlc-meta-grid' },
+      ...metaItems.map(([k, v]) => h('div', { key: k, className: 'jlc-meta-cell' }, h('dt', null, k), h('dd', null, v)))),
+    item.customsMeta && h('div', { className: 'jlc-customs-strip' },
+      item.customsMeta.mode && h('span', null, item.customsMeta.mode),
+      item.customsMeta.status && h('span', null, '状态：' + item.customsMeta.status),
+      item.customsMeta.isf && h('span', null, 'ISF：' + item.customsMeta.isf),
+      item.customsMeta.hblCount > 0 && h('span', null, `分单 ${item.customsMeta.hblCount} 票`),
+      item.customsMeta.heldCount > 0 && h('span', { className: 'danger' }, `扣留 ${item.customsMeta.heldCount} 票`)),
+    h(MilestoneStepper, { milestones: item.milestones }),
+    h('div', { className: 'jlc-folds' },
+      h(EventTimeline, { events: item.events }),
+      h(WarningsFold, { warnings: item.warnings }),
+      h(EtaHistoryFold, { arrival: item.arrival })));
+}
+function OverviewKpiCard({ item }) {
+  return h('article', { className: 'jlc-card jlc-overview' },
+    h('header', { className: 'jlc-card-head' },
+      h('div', { className: 'jlc-card-id' },
+        h('span', { className: 'jlc-kind-tag' }, '统计概览'),
+        h('strong', { className: 'jlc-bill-no' }, `${item.businessName}订阅概况`)),
+      item.total !== null && h('div', { className: 'jlc-kpi-total' },
+        h('span', null, '总订阅'),
+        h('strong', null, String(item.total)))),
+    item.filters.length > 0 && h('div', { className: 'jlc-filter-row' },
+      ...item.filters.map((f, i) => h('span', { key: i, className: 'jlc-filter-chip' }, f))),
+    item.categories.length > 0 && h('div', { className: 'jlc-kpi-grid' },
+      ...item.categories.map(cat =>
+        h('div', { key: cat.key, className: 'jlc-kpi-tile ' + (cat.count > 0 ? cat.tone : 'zero') },
+          h('span', { className: 'jlc-kpi-label' }, cat.label),
+          h('strong', { className: 'jlc-kpi-val' }, String(cat.count))))),
+    item.categories.length > 0 && h('p', { className: 'jlc-kpi-note' }, '各状态分类可能存在交叉重叠，不直接相加等于总量。'));
+}
+function matchMcpTool(name, suffix) {
+  return typeof name === 'string' && name.startsWith('mcp__') && name.endsWith('__' + suffix);
+}
+function ShipmentCards({ turn, chat }) {
+  const snapshot = useSyncExternalStore(chat.subscribe, chat.getSnapshot);
+  const pages = [];
+  const trackingParts = [];
+  const overviewParts = [];
+  function parseArgs(block) {
+    try { return JSON.parse(block.call?.argsRaw); } catch { return {}; }
+  }
+  function collect(block) {
+    if (block?.kind === 'tool-result' && !block.isError) {
+      if (block.name === 'juslink_search_shipment') {
+        let page;
+        try { page = JSON.parse(block.content.find(c => c.type === 'text')?.text); } catch {}
+        if (page?.state === 'ready' && Array.isArray(page.rows)) pages.push({ ...page, id: block.callId });
+      } else if (matchMcpTool(block.name, 'sky-vigil-find-subscriptions')) {
+        const page = normalizeSearchPage(block, { filters: {}, page: 0, ...parseArgs(block) });
+        if (page?.state === 'ready' && Array.isArray(page.rows)) pages.push({ ...page, id: block.callId });
+      } else if (matchMcpTool(block.name, 'sky-vigil-tracking')) {
+        const part = JuslinkCards.normalizeTrackingPart(block, parseArgs(block));
+        if (part) trackingParts.push(part);
+      } else if (matchMcpTool(block.name, 'sky-vigil-overview')) {
+        const part = JuslinkCards.normalizeOverviewPart(block, parseArgs(block));
+        if (part) overviewParts.push(part);
+      }
+    }
+    for (const child of block?.subCalls || []) collect(child);
+  }
+  for (const key of snapshot?.locations.getTurn(turn.turn) || []) {
+    const node = snapshot.nodes.get(key);
+    if (node?.kind === 'tool-call') collect(node.data.root);
+  }
+  const trackingCards = JuslinkCards.mergeTrackingParts(trackingParts);
+  const overviewCards = JuslinkCards.mergeOverviewParts(overviewParts);
+  if (!pages.length && !trackingCards.length && !overviewCards.length) return null;
+  return h('div', { className: 'jlc-chat-results', 'aria-label': '智链业务结果卡片' },
+    ...overviewCards.map(item => h(OverviewKpiCard, { key: 'ov-' + item.groupKey, item })),
+    ...pages.map(page =>
+      h(React.Fragment, { key: 'pg-' + page.id },
+        !page.rows.length && h('p', { className: 'jlc-empty-tip' }, '当前账号下未找到符合条件的订阅。'),
+        ...page.rows.map((row, index) => h(ShipmentSummaryCard, { key: index, row, compact: page.rows.length > 2 })),
+        page.more && h('p', { className: 'jlc-more-tip' }, '还有更多记录，可以在对话中继续翻页查看。'))),
+    ...trackingCards.map(item => h(TrackingDetailCard, { key: 'tr-' + item.groupKey, item })));
 }
 function CapabilityPage({ ctx, tools }) {
   const [pending, setPending] = useState(null);
@@ -122,7 +415,7 @@ function CapabilityPage({ ctx, tools }) {
     error && h('p', { role: 'alert', className: 'jlc-skill-error' }, error),
     h('h2', { className: 'jlc-launch-heading jlc-tools-heading' }, '已授权工具'),
     tools.length ? h('div', { className: 'jlc-tool-list' }, ...tools.map(gatewayEntry).map(entry =>
-      h('button', { type: 'button', className: 'jlc-tool-row', key: entry.id, disabled: !!pending, onClick: () => start(entry), 'aria-label': entry.title + '，在新对话中使用' },
+      h('button', { type: 'button', className: 'jlc-tool-row', key: entry.id, disabled: !!pending, onClick: () => start(entry), 'aria-label': entry.title },
         h('span', { className: 'jlc-tool-icon' }, h(CapabilityIcon, { kind: entry.icon })),
         h('span', { className: 'jlc-tool-text' }, h('strong', null, entry.title), h('span', null, pending === entry.id ? '正在打开新对话…' : entry.description)),
         h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '↗')))) :
@@ -401,9 +694,9 @@ function Panel({ ctx, tools = [] }) {
       tab === 'skills' && h(SkillPage, { ctx }))),
     adding && h(DemoTenantAuthorization, { available: demoTenants.filter(t => !tenants.some(granted => granted.id === t.id)), onClose: () => setAdding(false), onGrant: grant }));
 }
-async function authRequest(action, signal) {
+async function authRequest(action, signal, data) {
   const response = await fetch('juslink-auth/' + action, { method: 'POST', credentials: 'same-origin',
-    headers: { 'x-juslink-panel': '1' }, cache: 'no-store', signal });
+    headers: { 'x-juslink-panel': '1', ...(data && { 'content-type': 'application/json' }) }, body: data && JSON.stringify(data), cache: 'no-store', signal });
   if (!response.ok) {
     const missing = [404, 405].includes(response.status);
     return { state: 'unavailable', detail: missing ? 'DSH 尚未加载本机授权接口，请重新启动 DSH。' : 'DSH 授权接口返回 HTTP ' + response.status + '，请重试。' };
@@ -476,7 +769,7 @@ function Entry({ ctx }) {
   const active = useSyncExternalStore(fn => store.subscribe(fn), () => store.getSnapshot().activePanelId === PANEL_ID);
   return active ? h(AuthorizedPanel, { ctx }) : null;
 }
-exports.inject = ['slots', 'layout'];
+exports.inject = ['slots', 'layout', 'sessions', 'uiConversation'];
 exports.apply = function apply(ctx) {
   const BoundPanel = () => h(Entry, { ctx });
   ctx.effect(() => {
@@ -486,6 +779,10 @@ exports.apply = function apply(ctx) {
     document.head.appendChild(style);
     return () => style.remove();
   }, 'juslink: scoped styles');
+  ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
+    name: 'conversation.chat.turnTail', id: 'juslink-subscriptions',
+    inject: sessionId => ({ chat: ctx.uiConversation.binding(ctx.sessions.binding(sessionId)).target('chat') }),
+  }, ShipmentCards));
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, BoundPanel));
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, label: '智链平台', order: 5 }, Icon));
   ctx.effect(() => {

@@ -1,3 +1,11 @@
+import {
+  subscriptionArgs,
+  subscriptionPage,
+  extractRawSubscriptionIds,
+  normalizeTrackingPart,
+  mergeTrackingParts,
+  attachTrackingToRow,
+} from './subscription-search.js';
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 
@@ -49,7 +57,7 @@ async function payload(response, id) {
   if (message.id === id) return message.result;
 }
 
-export async function probe(token, send = gateway) {
+async function withSession(token, send, run) {
   const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
   if (token) headers.authorization = 'Bearer ' + token;
   const post = body => send({ method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', ...body }) });
@@ -66,6 +74,14 @@ export async function probe(token, send = gateway) {
     headers['mcp-protocol-version'] = info.protocolVersion;
     const ready = await post({ method: 'notifications/initialized' });
     if (!ready.ok) return failure(ready, '确认 MCP 连接');
+    return await run(post, failure);
+  } finally {
+    if (session) await send({ method: 'DELETE', headers }).catch(() => {});
+  }
+}
+
+export function probe(token, send = gateway) {
+  return withSession(token, send, async (post, failure) => {
     const tools = new Map();
     const cursors = new Set();
     let cursor;
@@ -86,9 +102,43 @@ export async function probe(token, send = gateway) {
       if (cursor) cursors.add(cursor);
     } while (cursor);
     return { state: 'authorized', tools: [...tools.values()] };
-  } finally {
-    if (session) await send({ method: 'DELETE', headers }).catch(() => {});
-  }
+  });
+}
+
+export function searchSubscriptions(token, args, send = gateway, options = {}) {
+  return withSession(token, send, async post => {
+    const reply = await post({ id: 2, method: 'tools/call', params: { name: 'sky-vigil-find-subscriptions', arguments: args } });
+    if (reply.status === 401) return required;
+    if (reply.status === 403) return { state: 'denied' };
+    if (!reply.ok) return unavailable;
+    const raw = await payload(reply, 2);
+    const page = subscriptionPage(raw, args);
+    if (options.enrichTracking && page.state === 'ready' && page.rows.length === 1) {
+      const rawId = extractRawSubscriptionIds(raw)[0];
+      if (rawId) {
+        const actions = args.business_type === 'SEA'
+          ? ['detail', 'milestones', 'arrival_analysis', 'warnings']
+          : ['detail'];
+        const calls = actions.map(async (action, index) => {
+          const rpcId = 3 + index;
+          const subArgs = { business_type: args.business_type, action, id: rawId };
+          try {
+            const subReply = await post({ id: rpcId, method: 'tools/call', params: { name: 'sky-vigil-tracking', arguments: subArgs } });
+            if (!subReply.ok) return null;
+            return normalizeTrackingPart(await payload(subReply, rpcId), subArgs);
+          } catch {
+            return null;
+          }
+        });
+        const parts = (await Promise.all(calls)).filter(Boolean);
+        if (parts.length) {
+          const merged = mergeTrackingParts(parts)[0];
+          page.rows[0] = attachTrackingToRow(page.rows[0], merged);
+        }
+      }
+    }
+    return page;
+  });
 }
 
 async function endpoints() {
@@ -237,4 +287,14 @@ export function registerAuth(ctx) {
       },
     }), 'juslink: auth ' + action);
   }
+  return async function findSubscription(input) {
+    const args = subscriptionArgs(input);
+    if (!args) return { state: 'invalid' };
+    const status = await auth.status();
+    if (status.state !== 'authorized') return { state: status.state };
+    if (!status.tools.some(t => t.name === 'sky-vigil-find-subscriptions')) return { state: 'denied' };
+    const token = (await ctx.credentials.resolve(accessRef))?.value;
+    const enrichTracking = status.tools.some(t => t.name === 'sky-vigil-tracking');
+    return token ? searchSubscriptions(token, args, gateway, { enrichTracking }) : required;
+  };
 }

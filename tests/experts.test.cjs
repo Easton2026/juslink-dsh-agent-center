@@ -65,8 +65,8 @@ test('expert catalog is separate from methods, uses creator session and reports 
 test('host registers the authoring skill as explicit-only with real tool schemas', async () => {
   const { apply } = await import('../index.js');
   const tools = [], skills = [];
-  apply({ effect() {}, tools: { register: tool => tools.push(tool) }, skills: { register: skill => skills.push(skill) }, workingDirectory: {} });
-  assert.deepEqual(tools.map(t => t.name), ['juslink_artifact_save']);
+  apply({ effect() {}, systemPrompt: { section() {} }, tools: { register: tool => tools.push(tool) }, skills: { register: skill => skills.push(skill) }, workingDirectory: {} });
+  assert.deepEqual(tools.map(t => t.name), ['juslink_artifact_save', 'juslink_search_shipment']);
   assert.equal(skills.length, 4);
   const authoring = skills.find(s => s.name === 'juslink-create-personal-expert');
   assert.deepEqual(authoring.invocation, { modelInvocable: false, userInvocable: true });
