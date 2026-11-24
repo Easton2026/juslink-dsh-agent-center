@@ -9,9 +9,10 @@ import {
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 
-const resource = 'https://higress-sit.jusda.int/mcp-servers/juslink-api-gateway-sit';
-const issuer = 'https://sit.jusda.cloud/login-entrance';
-const clientKey = 'juslink-agent-center/sit-client';
+const resource = 'https://higress-sit.jusda.int/mcp-servers/juslink-api-gateway-uat';
+const issuer = 'https://uat.jusda.cloud/login-entrance';
+const clientKey = 'juslink-agent-center/uat-client';
+const accountsKey = 'juslink-agent-center/uat-accounts';
 const accessRef = 'JUSLINK_MCP_TOKEN';
 const refreshRef = 'JUSLINK_MCP_REFRESH_TOKEN';
 const required = { state: 'required' };
@@ -21,7 +22,7 @@ async function request(url, options) {
   return fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(12000) });
 }
 
-// The temporary HTTP exception is scoped to this exact SIT gateway.
+// The temporary HTTP exception is scoped to this exact gateway.
 async function gateway(options) {
   try { return await request(resource, options); }
   catch (error) {
@@ -147,17 +148,45 @@ async function endpoints() {
     if (!response.ok) throw Error('Discovery failed');
     return response.json();
   };
-  const meta = await load('https://mpsit.jus-link.com/login-entrance/.well-known/oauth-protected-resource');
+  const meta = await load('https://uat.jusda.cloud/login-entrance/.well-known/oauth-protected-resource');
   if (meta.resource !== resource || !meta.authorization_servers?.includes(issuer)) throw Error('Unexpected resource');
-  const config = await load('https://sit.jusda.cloud/.well-known/oauth-authorization-server/login-entrance');
+  const config = await load('https://uat.jusda.cloud/.well-known/oauth-authorization-server/login-entrance');
   if (config.issuer !== issuer || !['token_endpoint','authorization_endpoint','registration_endpoint'].every(key => new URL(config[key]).origin === new URL(issuer).origin)) throw Error('Unexpected issuer');
   return config;
+}
+
+function parseTokenClaims(token) {
+  if (typeof token !== 'string') return {};
+  const parts = token.split('.');
+  if (parts.length < 2) return {};
+  try {
+    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) || {};
+  } catch {
+    return {};
+  }
+}
+
+function resolveTenantInfo(token) {
+  const claims = parseTokenClaims(token);
+  const id = String(claims.useraccount_id || claims.sub || claims.user_identity_id || randomBytes(8).toString('hex'));
+  const name = String(claims.company_name || claims.tenant_name || claims.org_name || claims.name || claims.preferred_username || claims.user_name || '企业账号 ' + id.slice(-4));
+  const account = String(claims.user_name || claims.preferred_username || claims.phone_number || '');
+  return { id, name, account, exp: claims.exp };
 }
 
 export function createAuth(credentials, { check = probe, discover = endpoints, send = request } = {}) {
   let pending, checking, starting;
   let disposed = false;
+
   const storedClient = async () => (await credentials.readRecord(clientKey))?.payload;
+  const storedAccounts = async () => {
+    const record = await credentials.readRecord(accountsKey);
+    return record?.payload || { activeId: null, list: [] };
+  };
+  const saveAccounts = async (accounts) => {
+    await credentials.modifyRecord(accountsKey, async () => ({ kind: 'grant', payload: accounts }));
+  };
+
   async function exchange(endpoint, client, params) {
     const response = await send(endpoint, { method: 'POST', body: new URLSearchParams({
       client_id: client.id, client_secret: client.secret, resource, ...params,
@@ -172,26 +201,90 @@ export function createAuth(credentials, { check = probe, discover = endpoints, s
       throw Error('Token exchange failed');
     }
     if (!data.access_token || data.token_type?.toLowerCase() !== 'bearer') throw Error('Invalid token response');
+    
+    // 解析租户身份并存入多租户池
+    const info = resolveTenantInfo(data.access_token);
+    const tenantEntry = {
+      id: info.id,
+      name: info.name,
+      account: info.account,
+      token: data.access_token,
+      refreshToken: data.refresh_token || null,
+      updatedAt: Date.now(),
+    };
+
+    const accounts = await storedAccounts();
+    const existingIndex = accounts.list.findIndex(t => t.id === tenantEntry.id);
+    if (existingIndex >= 0) {
+      accounts.list[existingIndex] = { ...accounts.list[existingIndex], ...tenantEntry };
+    } else {
+      accounts.list.push(tenantEntry);
+    }
+    accounts.activeId = tenantEntry.id;
+    await saveAccounts(accounts);
+
+    // 同步刷新当前单租户全局引用，保证 MCP 和工具开箱即用
     if (data.refresh_token) await credentials.set(refreshRef, data.refresh_token);
     else if (params.grant_type === 'authorization_code') await credentials.unset(refreshRef);
     await credentials.set(accessRef, data.access_token);
-    return check(data.access_token);
+
+    const probeResult = await check(data.access_token);
+    return {
+      ...probeResult,
+      activeTenant: { id: tenantEntry.id, name: tenantEntry.name, account: tenantEntry.account },
+      tenants: accounts.list.map(t => ({ id: t.id, name: t.name, account: t.account })),
+    };
   }
+
   async function status() {
-    const token = (await credentials.resolve(accessRef))?.value;
-    // SIT can serve tools/list even after the bearer token has expired.
+    const accounts = await storedAccounts();
+    let activeTenant = accounts.list.find(t => t.id === accounts.activeId) || accounts.list[0];
+    
+    // 如果没有账号池但有遗留的单一 accessRef，则兼容初始化
+    if (!activeTenant) {
+      const legacyToken = (await credentials.resolve(accessRef))?.value;
+      if (legacyToken) {
+        const info = resolveTenantInfo(legacyToken);
+        activeTenant = {
+          id: info.id,
+          name: info.name,
+          account: info.account,
+          token: legacyToken,
+          refreshToken: (await credentials.resolve(refreshRef))?.value || null,
+          updatedAt: Date.now(),
+        };
+        accounts.activeId = activeTenant.id;
+        accounts.list = [activeTenant];
+        await saveAccounts(accounts);
+      }
+    }
+
+    if (!activeTenant || !activeTenant.token) return required;
+
+    const token = activeTenant.token;
     let expiresAt;
     if (token?.split('.').length === 3) {
       try { expiresAt = JSON.parse(Buffer.from(token.split('.')[1], 'base64url')).exp; } catch {}
     }
-    const result = !token || (Number.isFinite(expiresAt) && expiresAt * 1000 <= Date.now() + 15000)
-      ? required : await check(token);
-    if (result.state !== 'required') return result;
+    const tokenStale = !token || (Number.isFinite(expiresAt) && expiresAt * 1000 <= Date.now() + 15000);
+    const result = tokenStale ? required : await check(token);
+
+    if (result.state !== 'required') {
+      return {
+        ...result,
+        activeTenant: { id: activeTenant.id, name: activeTenant.name, account: activeTenant.account },
+        tenants: accounts.list.map(t => ({ id: t.id, name: t.name, account: t.account })),
+      };
+    }
+
+    // 尝试用刷新令牌续期
     const client = await storedClient();
-    const refresh = (await credentials.resolve(refreshRef))?.value;
+    const refresh = activeTenant.refreshToken || (await credentials.resolve(refreshRef))?.value;
     if (!client || !refresh) return required;
+
     return exchange((await discover()).token_endpoint, client, { grant_type: 'refresh_token', refresh_token: refresh });
   }
+
   async function start() {
     if (pending?.state === 'waiting') return { state: 'waiting', url: pending.url };
     const config = await discover();
@@ -214,6 +307,8 @@ export function createAuth(credentials, { check = probe, discover = endpoints, s
         }) : required;
         attempt.state = result.state;
         attempt.tools = result.tools;
+        attempt.activeTenant = result.activeTenant;
+        attempt.tenants = result.tenants;
       } catch { attempt.state = 'unavailable'; }
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(attempt.state === 'authorized' ? '授权成功，可以返回智链平台。' : '请返回智链平台查看授权状态。');
@@ -242,20 +337,71 @@ export function createAuth(credentials, { check = probe, discover = endpoints, s
       const url = new URL(config.authorization_endpoint);
       url.search = new URLSearchParams({ response_type: 'code', client_id: client.id, redirect_uri: client.redirect,
         scope: 'mcp:tools', resource, state, code_challenge_method: 'S256',
-        code_challenge: createHash('sha256').update(verifier).digest('base64url') }).toString();
+        code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+        prompt: 'login consent' }).toString();
       if (disposed) throw Error('Plugin closed');
       attempt.url = url.href;
       pending = attempt;
       return { state: 'waiting', url: attempt.url };
     } catch (error) { attempt.close(); throw error; }
   }
+
+  async function switchTenant(tenantId) {
+    const accounts = await storedAccounts();
+    const target = accounts.list.find(t => t.id === tenantId);
+    if (!target) return { state: 'not_found', detail: '未找到指定租户凭据。' };
+
+    accounts.activeId = target.id;
+    await saveAccounts(accounts);
+
+    // 将激活租户的 Token 同步至全局引用
+    await credentials.set(accessRef, target.token);
+    if (target.refreshToken) await credentials.set(refreshRef, target.refreshToken);
+    else await credentials.unset(refreshRef);
+
+    const probeResult = await check(target.token);
+    return {
+      ...probeResult,
+      activeTenant: { id: target.id, name: target.name, account: target.account },
+      tenants: accounts.list.map(t => ({ id: t.id, name: t.name, account: t.account })),
+    };
+  }
+
+  async function removeTenant(tenantId) {
+    const accounts = await storedAccounts();
+    const filtered = accounts.list.filter(t => t.id !== tenantId);
+    accounts.list = filtered;
+
+    if (accounts.activeId === tenantId) {
+      accounts.activeId = filtered[0]?.id || null;
+    }
+    await saveAccounts(accounts);
+
+    if (accounts.activeId) {
+      return switchTenant(accounts.activeId);
+    } else {
+      await credentials.unset(accessRef);
+      await credentials.unset(refreshRef);
+      return required;
+    }
+  }
+
   return {
     status() {
       if (pending?.state === 'waiting') return Promise.resolve({ state: 'waiting', url: pending.url });
       return checking ??= status().finally(() => { checking = undefined; });
     },
     start() { return starting ??= start().finally(() => { starting = undefined; }); },
-    progress() { return { state: pending?.state ?? 'required', ...(pending?.tools && { tools: pending.tools }) }; },
+    progress() {
+      return {
+        state: pending?.state ?? 'required',
+        ...(pending?.tools && { tools: pending.tools }),
+        ...(pending?.activeTenant && { activeTenant: pending.activeTenant }),
+        ...(pending?.tenants && { tenants: pending.tenants }),
+      };
+    },
+    switchTenant(id) { return switchTenant(id); },
+    removeTenant(id) { return removeTenant(id); },
     cancel() {
       if (pending?.state === 'waiting' && !pending.used) {
         pending.state = 'required';
@@ -271,15 +417,31 @@ export function createAuth(credentials, { check = probe, discover = endpoints, s
 export function registerAuth(ctx) {
   const auth = createAuth(ctx.credentials);
   ctx.effect(() => () => auth.dispose(), 'juslink: close OAuth callback');
-  for (const action of ['status', 'start', 'progress', 'cancel']) {
+
+  const actions = ['status', 'start', 'progress', 'cancel', 'switch-tenant', 'remove-tenant'];
+  for (const action of actions) {
     ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/juslink-auth/' + action,
       handler: async (req, res) => {
         const rejection = ctx.connection.requestRejection(req);
         if (rejection || req.method !== 'POST' || req.headers['x-juslink-panel'] !== '1') {
           res.writeHead(rejection || 403).end(); return;
         }
+
+        let body = null;
+        if (action === 'switch-tenant' || action === 'remove-tenant') {
+          try {
+            const chunks = [];
+            for await (const chunk of req) chunks.push(chunk);
+            body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          } catch {}
+        }
+
         let result;
-        try { result = await auth[action](); } catch (error) {
+        try {
+          if (action === 'switch-tenant') result = await auth.switchTenant(body?.tenantId);
+          else if (action === 'remove-tenant') result = await auth.removeTenant(body?.tenantId);
+          else result = await auth[action]();
+        } catch (error) {
           const code = [error?.cause?.code, error?.code, error?.name].find(value => typeof value === 'string' && /^[A-Za-z_0-9]{1,60}$/.test(value));
           result = { state: 'unavailable', detail: '本机授权服务处理失败（' + (code || '未知错误') + '）。' };
         }
@@ -287,6 +449,7 @@ export function registerAuth(ctx) {
       },
     }), 'juslink: auth ' + action);
   }
+
   return async function findSubscription(input) {
     const args = subscriptionArgs(input);
     if (!args) return { state: 'invalid' };
