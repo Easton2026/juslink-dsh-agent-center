@@ -7,7 +7,7 @@ function Icon({ size = 20 }) {
     h('path', { d: 'M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v6H4zM14 15h6v6h-6z' }));
 }
 function button(text, action, props = {}) { return h('button', { type: 'button', onClick: action, ...props }, text); }
-let rememberedTab = 'home';
+let rememberedTab = 'tools';
 let lastSkillSession;
 let skillLaunchPending = false;
 let capabilityLaunchPending = false;
@@ -24,6 +24,9 @@ function CapabilityIcon({ kind }) {
     alert: ['M10.3 4.5 2.8 18a1.6 1.6 0 0 0 1.4 2.4h15.6a1.6 1.6 0 0 0 1.4-2.4L13.7 4.5a1.9 1.9 0 0 0-3.4 0Z','M12 9v4','M12 16.5h.01'],
     user: ['M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z','M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2Z'],
     expert: ['M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z','M19 14v6','M16 17h6'],
+    grid: ['M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z'],
+    layers: ['m3 7 9-4 9 4-9 4-9-4Z','m3 12 9 4 9-4','m3 17 9 4 9-4'],
+    building: ['M4 21V5l8-3v19','M12 9h8v12','M2 21h20','M7 8h2M7 12h2M7 16h2M15 12h2M15 16h2'],
   };
   return h('svg', { width: 21, height: 21, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
     kind === 'clock' && h('circle', { cx: 12, cy: 12, r: 9 }), ...(paths[kind] || paths.box).map((d, i) => h('path', { key: i, d })));
@@ -522,7 +525,7 @@ function ShipmentCards({ turn, chat, sessionId }) {
         page.more && h('p', { className: 'jlc-more-tip' }, '还有更多记录，可以在对话中继续翻页查看。'))),
     ...trackingCards.map(item => h(TrackingDetailCard, { key: 'tr-' + item.groupKey, item })));
 }
-function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy }) {
+function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy, page }) {
   const [pending, setPending] = useState(null);
   const [error, setError] = useState('');
   const [experts, setExperts] = useState([]);
@@ -544,11 +547,12 @@ function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy }) {
   }
   useEffect(() => {
     alive.current.active = true;
+    if (page !== 'experts') return () => { alive.current.active = false; ++alive.current.request; };
     void refresh();
     const onFocus = () => { void refresh(); };
     window.addEventListener('focus', onFocus);
     return () => { alive.current.active = false; ++alive.current.request; window.removeEventListener('focus', onFocus); };
-  }, []);
+  }, [page]);
   async function start(entry) {
     if (capabilityLaunchPending || accountBusy) return;
     capabilityLaunchPending = true; setPending(entry.id); setError('');
@@ -566,32 +570,45 @@ function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy }) {
   function capabilityCard(entry, isExpert) {
     const personal = isExpert && entry.scope === 'personal';
     const kind = isExpert ? (personal ? 'expert' : entry.id === 'logistics' ? 'chart' : entry.id === 'exceptions' ? 'alert' : 'expert') : entry.icon;
-    return h('button', { type: 'button', className: 'jlc-tool-row jlc-capability-card' + (personal ? ' jlc-personal-card' : ''),
+    return h('button', { type: 'button', className: 'jlc-tool-row jlc-capability-card' + (isExpert ? ' jlc-expert-tile' : ' jlc-tool-tile') + (personal ? ' jlc-personal-card' : ''),
       key: (isExpert ? 'expert-' : 'tool-') + entry.id, disabled: !!pending || accountBusy, onClick: () => start(entry),
       'aria-label': entry.title + (personal ? '（个人专家）' : '') },
-      h('span', { className: 'jlc-tool-icon' }, h(CapabilityIcon, { kind })),
-      h('span', { className: 'jlc-tool-text' }, h('strong', { title: entry.title }, entry.title),
-        h('span', { className: 'jlc-cap-description', title: entry.description || undefined }, pending === entry.id ? '正在打开新对话…' : entry.description)),
-      h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '›'),
+      isExpert ? h('span', { className: 'jlc-tool-icon' }, h(CapabilityIcon, { kind })) : h(ToolIllustration, { kind }),
+      h('span', { className: 'jlc-tile-body' },
+        h('span', { className: 'jlc-tool-text' }, h('strong', { title: entry.title }, entry.title),
+          h('span', { className: 'jlc-cap-description', title: entry.description || undefined }, pending === entry.id ? '正在打开新对话…' : entry.description)),
+        h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '›')),
       personal && h('span', { className: 'jlc-personal-mark', title: '个人场景专家', 'aria-label': '个人场景专家' }, h(CapabilityIcon, { kind: 'user' })));
   }
-  return h('section', { className: 'jlc-launch jlc-capability-home' },
-    h('div', { className: 'jlc-cap-section' },
-      h('div', { className: 'jlc-cap-heading' },
-        h('div', { className: 'jlc-cap-title' }, h('h2', null, '场景专家'), h('span', { className: 'jlc-cap-caption' }, '面向完整业务场景的专业能力')),
-        button(pending === 'create-expert' ? '正在打开…' : '＋ 新建场景专家', createExpert, { disabled: !!pending, className: 'jlc-create-expert' })),
+  return h('section', { className: 'jlc-launch jlc-capability-home', 'aria-label': page === 'experts' ? '场景专家' : '智链工具' },
+    error && h('p', { role: 'alert', className: 'jlc-skill-error' }, error),
+    page === 'experts' ? h(React.Fragment, null,
+      h('div', { className: 'jlc-page-actions' },
+        button(pending === 'create-expert' ? '正在打开…' : '＋ 新建场景专家', createExpert, { disabled: !!pending || accountBusy, className: 'jlc-create-expert' })),
       h('div', { className: 'jlc-cap-grid jlc-cap-grid-experts' }, ...visible.map(entry => capabilityCard(entry, true))),
       loading && h('p', { className: 'jlc-muted jlc-cap-status', role: 'status' }, '正在读取个人场景专家…'),
-      catalogError && h('p', { className: 'jlc-skill-error', role: 'alert' }, catalogError)),
-    error && h('p', { role: 'alert', className: 'jlc-skill-error' }, error),
-    h('div', { className: 'jlc-cap-section' },
-      h('div', { className: 'jlc-cap-heading' },
-        h('div', { className: 'jlc-cap-title' }, h('h2', null, '智链工具'), h('span', { className: 'jlc-cap-caption' }, '查询范围由当前企业授权决定'))),
+      catalogError && h('p', { className: 'jlc-skill-error', role: 'alert' }, catalogError)) :
       tools.length ? h('div', { className: 'jlc-cap-grid jlc-cap-grid-tools' }, ...tools.map(gatewayEntry).map(entry => capabilityCard(entry, false))) :
-        h('p', { className: 'jlc-muted' }, '当前账号没有可用的智链工具。')));
+        h('p', { className: 'jlc-muted' }, '当前账号没有可用的智链工具。'));
+}
+function ToolIllustration({ kind }) {
+  const shape = (tag, props, ...children) => h(tag, props, ...children);
+  const rect = (x,y,width,height,fill,rx=3) => shape('rect',{x,y,width,height,fill,rx});
+  const path = (d,fill,stroke,strokeWidth=2) => shape('path',{d,fill,stroke,strokeWidth,strokeLinecap:'round',strokeLinejoin:'round'});
+  const circle = (cx,cy,r,fill) => shape('circle',{cx,cy,r,fill});
+  const art = {
+    document: () => [rect(65,18,57,64,'#b7c4ff',6),rect(56,12,57,64,'#fff',6),path('M94 12v17h19','#d9e2ff','#9baeff',1),rect(65,35,37,4,'#9bafff'),rect(65,45,31,4,'#b5c1f7'),rect(65,55,24,4,'#b5c1f7'),circle(112,70,13,'#343bc9'),path('M106 70l4 4 8-9','none','#fff',2.6)],
+    box: () => [path('M53 34l30-15 30 15-30 15Z','#c0ceff'),path('M53 34v33l30 15V49Z','#7e97f2'),path('M83 49l30-15v33L83 82Z','#526de3'),path('M68 27l30 15','none','#fff',3),circle(113,58,19,'#fff'),shape('circle',{cx:113,cy:58,r:13,fill:'#dae4ff',stroke:'#354bd4',strokeWidth:3}),path('M126 71l12 12','none','#354bd4',6)],
+    route: () => [path('M52 63C60 35 78 75 95 43S122 26 136 40','none','#8197ef',5),path('M52 63C60 35 78 75 95 43S122 26 136 40','none','#fff',1.6),circle(52,63,9,'#333bc9'),circle(52,63,3,'#fff'),path('M136 57s-14-15-14-22a14 14 0 1 1 28 0c0 7-14 22-14 22Z','#4351da'),circle(136,35,5,'#fff')],
+    chart: () => [rect(50,15,93,65,'#c8d4ff',7),rect(44,10,93,65,'#fff',7),path('M57 63h66','none','#c4cff4'),rect(61,44,13,19,'#9cafff'),rect(79,34,13,29,'#7189ef'),rect(97,21,13,42,'#3f52db'),path('M58 37l22-13 13 5 27-15','none','#7189ef',2),circle(120,14,3,'#4351da')],
+    port: () => [path('M51 39l40-24 40 24Z','#526de3'),rect(56,39,70,35,'#fff',3),rect(65,43,11,27,'#9cadf6'),rect(85,43,11,27,'#9cadf6'),rect(105,43,11,27,'#9cadf6'),rect(50,73,82,6,'#526de3'),circle(137,66,12,'#343bc9'),path('M132 66h10M137 61v10','none','#fff',2)],
+  };
+  return h('span', { className:'jlc-tool-art', 'aria-hidden':true },
+    h('svg',{viewBox:'0 0 184 96',width:'100%',height:'100%',preserveAspectRatio:'xMidYMid meet',focusable:false},
+      shape('ellipse',{cx:92,cy:80,rx:53,ry:8,fill:'#cbd6fa'}),
+      ...(art[kind] || art.box)()));
 }
 function SkillPage({ ctx }) {
-  const [scope, setScope] = useState('platform');
   const [query, setQuery] = useState('');
   const [skills, setSkills] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -634,28 +651,27 @@ function SkillPage({ ctx }) {
     catch (reason) { if (lifetime.current.active) setError('打开对话失败：' + (reason.message || String(reason))); }
     finally { skillLaunchPending = false; if (lifetime.current.active) setBusy(false); }
   }
-  const counts = key => skills.filter(item => item.scope === key).length;
   const needle = query.trim().toLocaleLowerCase();
-  const visible = skills.filter(item => item.scope === scope && (!needle || [item.title, item.description, item.name].join(' ').toLocaleLowerCase().includes(needle)));
-  return h('section', { className: 'jlc-skills' },
-    h('div', { className: 'jlc-skills-heading' }, h('div', null, h('h1', null, '技能'), h('p', { className: 'jlc-muted' }, '把专业经验保存为技能，在对话中按需使用。')),
-      h('div', { className: 'jlc-skills-actions' }, h('input', { type: 'search', value: query, onChange: e => setQuery(e.target.value), placeholder: '搜索技能', 'aria-label': '搜索智链技能' }),
-        button(busy ? '正在打开…' : '＋ 新增', () => start(SkillFlow.creationPrompt()), { disabled: busy, className: 'jlc-primary' }))),
-    h('div', { className: 'jlc-skill-scopes', role: 'tablist', 'aria-label': '技能来源' }, ...[['platform', '平台'], ['personal', '个人']].map(([key, label]) => button(label + ' · ' + counts(key), () => { setScope(key); setOpened(null); }, { key, role: 'tab', 'aria-selected': scope === key, className: scope === key ? 'selected' : '' }))),
+  const visible = skills.filter(item => !needle || [item.title, item.description, item.name].join(' ').toLocaleLowerCase().includes(needle));
+  return h('section', { className: 'jlc-skills jlc-unified-skills', 'aria-label': '我的技能' },
+    h('div', { className: 'jlc-page-actions jlc-skills-actions' },
+      h('input', { type: 'search', value: query, onChange: e => setQuery(e.target.value), placeholder: '搜索技能', 'aria-label': '搜索智链技能' }),
+      button(busy ? '正在打开…' : '＋ 新增技能', () => start(SkillFlow.creationPrompt()), { disabled: busy, className: 'jlc-create-expert' })),
     error && h('p', { className: 'jlc-skill-error', role: 'alert' }, error),
     notice && h('p', { className: 'jlc-muted', role: 'status' }, notice),
-    h('p', { className: 'jlc-skill-caption' }, scope === 'platform' ? '由智链平台提供，随插件更新。' : '由你创建并关联智链平台，保存在当前 DSH 用户的个人技能目录。'),
-    loading ? h('p', { className: 'jlc-muted', role: 'status' }, '正在读取 DSH 技能目录…') :
+    loading && !skills.length ? h('p', { className: 'jlc-muted', role: 'status' }, '正在读取 DSH 技能目录…') :
       visible.length ? h('div', { className: 'jlc-skill-grid' }, ...visible.map(item => h('article', { className: 'jlc-skill-card', key: item.name },
-        h('div', { className: 'jlc-skill-icon', 'aria-hidden': true }, h(Icon, { size: 21 })),
-        h('div', { className: 'jlc-skill-copy' }, button(item.title, () => setOpened(opened === item.name ? null : item.name), { className: 'jlc-skill-title', 'aria-expanded': opened === item.name }), h('p', null, item.description),
-          h('div', { className: 'jlc-skill-card-actions' }, h('span', null, '已可用'), button('在新对话中使用', () => start('/' + item.name + ' 请按这个工作方法协助我，先询问这次任务所需的信息。'), { disabled: busy, className: 'jlc-skill-link' })),
+        item.scope === 'personal' && h('span', { className: 'jlc-personal-mark', title: '个人技能', 'aria-label': '个人技能' }, h(CapabilityIcon, { kind: 'user' })),
+        h('div', { className: 'jlc-skill-icon', 'aria-hidden': true }, h(CapabilityIcon, { kind:'layers' })),
+        h('div', { className: 'jlc-skill-copy' },
+          button(item.title, () => setOpened(opened === item.name ? null : item.name), { className: 'jlc-skill-title', title: item.title, 'aria-expanded': opened === item.name }),
+          h('p', { className:'jlc-cap-description', title: item.description || undefined }, item.description),
+          h('div', { className: 'jlc-skill-card-actions' }, button('在新对话中使用', () => start('/' + item.name + ' 请按这个工作方法协助我，先询问这次任务所需的信息。'), { disabled: busy, className: 'jlc-skill-link' })),
           opened === item.name && h('div', { className: 'jlc-skill-detail' }, h('p', null, '调用标识：/' + item.name),
             item.scope === 'platform' ? h('pre', null, PLATFORM_SKILL_CONTENT) : h('p', null, '技能文件：' + item.path),
-            h('p', { className: 'jlc-muted' }, item.scope === 'platform' ? '平台技能为只读。新增自己的方法时，请使用右上角“新增”。' : '此技能使用 DSH 原生文件机制加载，更新或重装智链插件不会覆盖此文件。')))))) :
-        h('div', { className: 'jlc-skill-empty' }, h('h2', null, needle ? '没有匹配的技能' : scope === 'personal' ? '还没有个人技能' : '暂未发现平台技能'),
-          h('p', null, needle ? '试试其他名称或关键词。' : scope === 'personal' ? '点击“新增”，在 DSH 对话中描述你的方法。实际保存成功后，返回这里查看。' : '请确认插件已启用，再重新进入技能页。')),
-    h('p', { className: 'jlc-note' }, '新增会打开 DSH 新对话，并自动带入创建技能与关联智链平台的说明。对话中写出内容不代表已保存，以文件保存成功和目录可见为准。'));
+            h('p', { className: 'jlc-muted' }, item.scope === 'platform' ? '平台技能为只读。新增自己的方法时，请使用右上角“新增技能”。' : '此技能使用 DSH 原生文件机制加载，更新或重装智链插件不会覆盖此文件。')))))) :
+        h('div', { className: 'jlc-skill-empty' }, h('h2', null, needle ? '没有匹配的技能' : '还没有可用技能'),
+          h('p', null, needle ? '试试其他名称或关键词。' : '点击“新增技能”，在 DSH 对话中描述你的方法，保存成功后返回查看。')));
 }
 function TenantMenu({ tenants, active, onSelect, onAdd, onRemove, busy }) {
   const [open, toggle] = useState(false);
@@ -675,7 +691,7 @@ function TenantMenu({ tenants, active, onSelect, onAdd, onRemove, busy }) {
     };
   }, [open]);
   return h('div', { className: 'jlc-tenant', ref: root },
-    button(h(React.Fragment, null, h('span', null, '当前企业：'), h('strong', null, active?.name || '未选择'), h('i', { 'aria-hidden': true })),
+    button(h(React.Fragment, null, h(CapabilityIcon, { kind:'building' }), h('span', { className:'jlc-tenant-label' }, '当前租户'), h('strong', { title:active?.name || '未选择' }, active?.name || '未选择'), h('i', { 'aria-hidden': true })),
       () => toggle(!open), { ref: trigger, className: 'jlc-tenant-trigger', disabled: busy, 'aria-expanded': open }),
     open && h('div', { className: 'jlc-tenant-menu' },
       ...tenants.map(item => h('div', { key: item.id, className: 'jlc-tenant-row', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px' } },
@@ -692,11 +708,11 @@ function Panel({ ctx, workspace, beforeLaunch, authDialog, accountBusy, accountE
   const tools = Array.from(toolLabels.keys(), name => ({ name }));
   const [tab, updateTab] = useState(rememberedTab);
   const setTab = value => { rememberedTab = value; updateTab(value); };
-  const tabs = [['home', '工具'], ['skills', '技能']];
+  const tabs = [['tools', '智链工具', 'grid'], ['experts', '场景专家', 'expert'], ['skills', '我的技能', 'layers']];
 
   return h('div', { className: 'jlc-panel-frame' },
-    h('div', { className: 'jlc-root jlc-workspace' + (tab === 'home' ? ' jlc-home' : ''), inert: authDialog ? true : undefined },
-    h('header', { className: 'jlc-hero' + (tab === 'home' ? '' : ' jlc-hero-compact') },
+    h('div', { className: 'jlc-root jlc-workspace jlc-home', inert: authDialog ? true : undefined },
+    h('header', { className: 'jlc-hero' },
       h('div', { className: 'jlc-hero-top' },
         h('div', { className: 'jlc-brand' }, h('img', { src: JUSDA_LOGO, alt: 'JUSDA 准时达' }), h('span', { className: 'jlc-brand-name' }, 'JusBuddy')),
         h(TenantMenu, { tenants, active: activeTenant, busy: accountBusy, onAdd,
@@ -705,14 +721,14 @@ function Panel({ ctx, workspace, beforeLaunch, authDialog, accountBusy, accountE
             if (window.confirm('确认移除企业【' + item.name + '】的授权凭证吗？')) void changeAccount('remove-tenant', item);
           },
         })),
-      tab === 'home' && h('div', { className: 'jlc-hero-body' },
+      h('div', { className: 'jlc-hero-body' },
         h('div', { className: 'jlc-hero-copy' }, h('h1', null, '让供应链业务更简单'), h('p', null, '连接业务工具、场景专家与智能技能')),
         h('div', { className: 'jlc-hero-wordmark', 'aria-hidden': true }, h('span', null, 'JusBuddy'), h('span', null, 'Agent')))),
 
-    h('nav', { className: 'jlc-tabs jlc-workspace-tabs', 'aria-label': 'JusBuddy 工作区' }, ...tabs.map(([id, label]) => button(label, () => setTab(id), { key: id, 'aria-current': tab === id ? 'page' : undefined, className: tab === id ? 'selected' : '' }))),
+    h('nav', { className: 'jlc-tabs jlc-workspace-tabs jlc-float-nav', 'aria-label': 'JusBuddy 工作区' }, ...tabs.map(([id, label, kind]) => button(h(React.Fragment, null, h(CapabilityIcon, { kind }), h('span', null, label)), () => setTab(id), { key: id, 'aria-current': tab === id ? 'page' : undefined, className: tab === id ? 'selected' : '' }))),
     h('main', { className: 'jlc-content' },
       accountError && h('p', { role: 'alert', className: 'jlc-skill-error' }, accountError),
-      tab === 'home' && h(CapabilityPage, { ctx, tools, beforeLaunch, accountBusy }),
+      (tab === 'tools' || tab === 'experts') && h(CapabilityPage, { key:tab, page:tab, ctx, tools, beforeLaunch, accountBusy }),
       tab === 'skills' && h(SkillPage, { ctx }))), authDialog);
 }
 async function authRequest(action, signal, data) {
