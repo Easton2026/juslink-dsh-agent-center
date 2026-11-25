@@ -11,6 +11,7 @@ let rememberedTab = 'tools';
 let lastSkillSession;
 let skillLaunchPending = false;
 const deletedPersonalSkills = new Set();
+const deletedPersonalExperts = new Set();
 let capabilityLaunchPending = false;
 let lastExpertSession;
 function CapabilityIcon({ kind }) {
@@ -532,14 +533,25 @@ function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy, page }) {
   const [experts, setExperts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
+  const [opened, setOpened] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailRetry, setDetailRetry] = useState(0);
   const alive = useRef({ active: true, request: 0 });
+  const deleting = useRef(false);
   async function refresh() {
     const seq = ++alive.current.request;
     setLoading(true); setCatalogError('');
     try {
       const result = await SkillFlow.listExperts(ctx, lastExpertSession);
+      const next = await Promise.all(result.experts.map(async item => {
+        if (!deletedPersonalExperts.has(item.name)) return item;
+        try { await SkillFlow.readPersonal(item); deletedPersonalExperts.delete(item.name); return item; }
+        catch { return null; }
+      }));
       if (!alive.current.active || seq !== alive.current.request) return;
-      setExperts(result.experts);
+      const visible = next.filter(Boolean);
+      setExperts(visible);
+      setOpened(current => current && [...EXPERT_ENTRIES,...visible].some(item=>item.id===current) ? current : null);
     } catch (reason) {
       if (alive.current.active && seq === alive.current.request) setCatalogError('读取个人专家失败：' + (reason.message || String(reason)));
     } finally {
@@ -551,11 +563,26 @@ function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy, page }) {
     if (page !== 'experts') return () => { alive.current.active = false; ++alive.current.request; };
     void refresh();
     const onFocus = () => { void refresh(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') onFocus(); };
     window.addEventListener('focus', onFocus);
-    return () => { alive.current.active = false; ++alive.current.request; window.removeEventListener('focus', onFocus); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { alive.current.active = false; ++alive.current.request; window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibility); };
   }, [page]);
+  useEffect(() => {
+    setDetail(null);
+    const item = page === 'experts' && experts.find(value=>value.id===opened);
+    if (!item) return;
+    const controller = new AbortController(); let active = true;
+    setDetail({id:item.id,state:'loading'});
+    SkillFlow.readPersonal(item,controller.signal).then(value=>{
+      if(active) setDetail({id:item.id,state:'ready',...value});
+    }).catch(reason=>{
+      if(active) setDetail({id:item.id,state:'error',error:reason.message || String(reason)});
+    });
+    return () => { active=false; controller.abort(); };
+  }, [page,opened,experts,detailRetry]);
   async function start(entry) {
-    if (capabilityLaunchPending || accountBusy) return;
+    if (capabilityLaunchPending || accountBusy || deleting.current) return;
     capabilityLaunchPending = true; setPending(entry.id); setError('');
     try {
       if (entry.gateway && !await beforeLaunch(entry)) return;
@@ -567,19 +594,69 @@ function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy, page }) {
   function createExpert() {
     void start({ id: 'create-expert', prompt: SkillFlow.expertCreationPrompt() });
   }
+  async function removeExpert(entry,revision) {
+    if (capabilityLaunchPending || deleting.current || accountBusy || !revision) return;
+    if (!window.confirm('确认删除个人场景专家【'+entry.title+'】？删除后将不再作为专家加载。')) return;
+    deleting.current=true; setPending(entry.id); setError('');
+    try {
+      await SkillFlow.deletePersonal(entry,revision);
+      deletedPersonalExperts.add(entry.name);
+      if (!alive.current.active) return;
+      ++alive.current.request;
+      setExperts(current=>current.filter(item=>item.id!==entry.id));
+      setOpened(current=>current===entry.id?null:current);
+      await refresh();
+    } catch(reason) {
+      if(alive.current.active){setError('删除专家失败：'+(reason.message || String(reason)));setDetailRetry(n=>n+1);}
+    } finally {deleting.current=false;if(alive.current.active)setPending(null);}
+  }
+  function toolDisplay(name) {
+    const short = name.startsWith('mcp__juslink__') ? name.slice('mcp__juslink__'.length) : name;
+    const normalized = short.replaceAll('_','-');
+    const aliases = {juslink_search_shipment:'搜索订阅',juslink_artifact_save:'保存成果',juslink_render_card:'生成业务视图'};
+    const label = toolLabels.get(short)?.[0] || toolLabels.get(normalized)?.[0] || aliases[short] || tools.find(t=>t.name===name || t.name===short)?.title || name;
+    return {key:toolLabels.has(normalized)?normalized:short,label};
+  }
+  function expertDetails(entry) {
+    const personal=entry.scope==='personal', value=detail?.id===entry.id?detail:null;
+    const ready=!personal || value?.state==='ready';
+    const data=personal?value:entry;
+    const labels=new Map();
+    for(const name of data?.toolNames || []) {const tool=toolDisplay(name);if(!labels.has(tool.key))labels.set(tool.key,{...tool,name});}
+    return h('div',{className:'jlc-expert-details'},
+      h('h3',null,'场景能力'),
+      ready ? h('p',{className:'jlc-expert-capability'},data?.capability || entry.description || '暂无详细场景能力描述。') :
+        value?.state==='error' ? h('p',{className:'jlc-skill-detail-error',role:'alert'},value.error,' ',button('重试',()=>setDetailRetry(n=>n+1),{className:'jlc-skill-link'})) :
+          h('p',{className:'jlc-muted',role:'status'},'正在读取场景能力…'),
+      h('h3',null,'涉及工具'),
+      ready ? (labels.size ? h('div',{className:'jlc-expert-tools'},...[...labels.values()].map(t=>h('span',{className:'jlc-expert-tool',key:t.key,title:t.name},t.label))) :
+        h('p',{className:'jlc-muted'},'暂无明确工具记录。')) : h('p',{className:'jlc-muted'},value?.state==='error'?'暂时无法读取工具清单。':'正在读取…'),
+      ready && data?.toolSource==='mentioned' && h('p',{className:'jlc-expert-source'},'根据原专家正文中的工具标识识别。'),
+      personal && h('div',{className:'jlc-skill-manage'},
+        button('编辑',()=>start({...entry,prompt:SkillFlow.expertEditingPrompt(entry)}),{className:'jlc-skill-link',disabled:!!pending || accountBusy || !ready}),
+        button('删除',()=>removeExpert(entry,value?.revision),{className:'jlc-skill-link jlc-skill-delete',disabled:!!pending || accountBusy || !ready})));
+  }
   const visible = [...EXPERT_ENTRIES, ...experts];
   function capabilityCard(entry, isExpert) {
     const personal = isExpert && entry.scope === 'personal';
     const kind = isExpert ? (personal ? 'expert' : entry.id === 'logistics' ? 'chart' : entry.id === 'exceptions' ? 'alert' : 'expert') : entry.icon;
-    return h('button', { type: 'button', className: 'jlc-tool-row jlc-capability-card' + (isExpert ? ' jlc-expert-tile' : ' jlc-tool-tile') + (personal ? ' jlc-personal-card' : ''),
+    const main = h('button', { type: 'button', className: 'jlc-tool-row jlc-capability-card' + (isExpert ? ' jlc-expert-tile' : ' jlc-tool-tile') + (personal ? ' jlc-personal-card' : ''),
       key: (isExpert ? 'expert-' : 'tool-') + entry.id, disabled: !!pending || accountBusy, onClick: () => start(entry),
       'aria-label': entry.title + (personal ? '（个人专家）' : '') },
       h('span', { className: 'jlc-tile-body' },
         h('span', { className: 'jlc-tool-text' }, h('strong', { title: entry.title }, entry.title),
-          h('span', { className: 'jlc-cap-description', title: entry.description || undefined }, pending === entry.id ? '正在打开新对话…' : entry.description)),
+          h('span', { className: 'jlc-cap-description', title: entry.description || undefined }, pending === entry.id ? '正在处理…' : entry.description)),
         !isExpert && h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '›')),
       isExpert && h(ExpertIllustration, { kind }),
       personal && h('span', { className: 'jlc-personal-mark', title: '个人场景专家', 'aria-label': '个人场景专家' }, h(CapabilityIcon, { kind: 'user' })));
+    if(!isExpert) return main;
+    const expanded=opened===entry.id;
+    return h('article',{className:'jlc-expert-shell'+(expanded?' expanded':'')+(personal?' personal':''),key:entry.id},
+      h('div',{className:'jlc-expert-head'},main,
+        h('button',{type:'button',className:'jlc-expert-toggle','aria-expanded':expanded,'aria-label':(expanded?'收起':'查看')+entry.title+'详情',onClick:()=>setOpened(current=>current===entry.id?null:entry.id)},
+          expanded?'收起详情':'查看详情',
+          h('svg',{viewBox:'0 0 16 16',width:13,height:13,fill:'none',stroke:'currentColor',strokeWidth:1.5,'aria-hidden':true},h('path',{d:'m4 6 4 4 4-4',strokeLinecap:'round',strokeLinejoin:'round'})))),
+      expanded && expertDetails(entry));
   }
   return h('section', { className: 'jlc-launch jlc-capability-home', 'aria-label': page === 'experts' ? '场景专家' : '智链工具' },
     error && h('p', { role: 'alert', className: 'jlc-skill-error' }, error),

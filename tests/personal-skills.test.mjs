@@ -33,3 +33,16 @@ test('editing invokes only a valid existing personal target',()=>{
   assert.throws(()=>flow.editingPrompt({...target,scope:'platform'})); assert.throws(()=>flow.editingPrompt({...target,name:'juslink-personal-../bad'}));
   assert.equal(personalBody(raw,name),'# 测试正文');
 });
+
+test('expert metadata, legacy references and deletion use the same guarded store', async t => {
+  const home=await mkdtemp(join(tmpdir(),'jusbuddy-expert-')); t.after(()=>rm(home,{recursive:true,force:true}));
+  const name='juslink-expert-demo', dir=join(home,'skills',name), path=join(dir,'SKILL.md');
+  await mkdir(dir,{recursive:true});
+  const header='---\nname: '+name+'\nmetadata:\n  plugin: "@juslink/agent-center-ui"\n  scope: personal\n  kind: scenario-expert\n';
+  await writeFile(path,header+'  scene_capability: "查看运输信息"\n  tool_names: "sky-vigil-find-subscriptions,sky-vigil-tracking"\n---\n# 方法\n');
+  const store=createPersonalSkillStore({home}), target={name,path}, first=await store.read(target);
+  assert.equal(first.capability,'查看运输信息'); assert.deepEqual(first.toolNames,['sky-vigil-find-subscriptions','sky-vigil-tracking']);
+  await writeFile(path,header+'---\n## 目标与完成条件\n分析货物\n## 工具与步骤\n调用 mcp__juslink__sky-vigil-tracking\n');
+  const legacy=await store.read(target); assert.equal(legacy.capability,'分析货物'); assert.equal(legacy.toolSource,'mentioned');
+  assert.deepEqual(await store.remove({...target,revision:legacy.revision}),{removed:true});
+});

@@ -67,7 +67,8 @@ test('host registers the authoring skill as explicit-only with real tool schemas
   const tools = [], skills = [];
   apply({ effect() {}, systemPrompt: { section() {} }, tools: { register: tool => tools.push(tool) }, skills: { register: skill => skills.push(skill) }, workingDirectory: {} });
   assert.deepEqual(tools.map(t => t.name), ['juslink_artifact_save', 'juslink_render_card', 'juslink_search_shipment']);
-  assert.equal(skills.length, 5);
+  assert.equal(skills.length, 6);
+  assert.deepEqual(skills.find(s => s.name === 'juslink-edit-personal-expert').invocation, { modelInvocable: false, userInvocable: true });
   const editor = skills.find(s => s.name === 'juslink-edit-personal-skill');
   assert.deepEqual(editor.invocation, { modelInvocable: false, userInvocable: true });
   const authoring = skills.find(s => s.name === 'juslink-create-personal-expert');
@@ -75,4 +76,11 @@ test('host registers the authoring skill as explicit-only with real tool schemas
   const catalog = JSON.parse(authoring.content.split('## 插件工具参考目录\n')[1].split('\n\n不要修改平台专家')[0]);
   assert.deepEqual(catalog.map(t => t.name), tools.map(t => t.name));
   assert.deepEqual(catalog[0].parameters, tools[0].parameters);
+});
+
+test('expert editing opens the existing expert target, not a new skill', async () => {
+  const { ctx, calls } = fixture();
+  await flow.launch(ctx, flow.expertEditingPrompt(flow.expertView(expert)));
+  assert.match(calls.find(x => x[0] === 'submission')[1].text, /^\/juslink-edit-personal-expert /);
+  assert.throws(() => flow.expertEditingPrompt({ ...expert, scope:'platform' }));
 });

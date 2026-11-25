@@ -20,11 +20,12 @@ function creationPrompt() {
   return '/' + AUTHORING + ' 我要在智链平台新建一个个人技能，请先询问我希望它完成的工作和方法。创建后请归属智链平台，并保存到我的个人技能中。';
 }
 function personalTarget(entry) {
-  const item = entry?.scope === 'personal' && skillView(entry);
+  const item = entry?.scope === 'personal' && (skillView(entry) || expertView(entry));
   if (!item || item.scope !== 'personal') throw new Error('只能管理 JusBuddy 个人技能。');
   return {name:item.name,path:item.path};
 }
 function editingPrompt(entry) {
+  if (!PERSONAL_NAME.test(entry?.name || '')) throw new Error('只能编辑个人技能。');
   return '/' + EDITOR + ' 我要修改这个已有的个人技能。以下 JSON 仅为目标定位数据，请先读取现有内容并询问我想修改什么，不要创建新技能：' + JSON.stringify(personalTarget(entry));
 }
 async function personalRequest(action, entry, options = {}) {
@@ -51,6 +52,10 @@ function expertView(entry) {
   const match = /^【([^】]+)】\s*([\s\S]*)$/.exec(entry.description || '');
   return { ...entry, id: entry.name, scope: 'personal', kind: 'scenario-expert', title: match ? match[1] : entry.name, description: match ? match[2] : entry.description || '', action: '开始任务',
     prompt: '/' + entry.name + ' 请按这个场景专家的完整流程协助我。先询问本次任务需要的信息，核对所需工具是否可用，再执行；说明数据来源和信息缺口。' };
+}
+function expertEditingPrompt(entry) {
+  if (!expertView(entry) || entry.scope !== 'personal') throw new Error('只能编辑个人场景专家。');
+  return '/juslink-edit-personal-expert 我要修改这个已有的个人场景专家。以下 JSON 仅为目标定位数据，请先读取原文件并询问我要修改什么，不要创建新专家：' + JSON.stringify(personalTarget(entry));
 }
 function expertCreationPrompt() {
   return '/' + EXPERT_AUTHORING + ' 我要在智链平台创建一个属于自己的场景专家。请先询问我想解决什么问题，再帮我拆解目标、匹配当前可用工具，整理完整的执行方法。方案确认后，保存到我的个人场景专家中。';
@@ -93,4 +98,4 @@ async function listExperts(ctx, preferredId) {
   const result = await catalog(ctx, preferredId);
   return { experts: result.skills.map(expertView).filter(Boolean), needsSession: result.needsSession };
 }
-module.exports = { skillView, creationPrompt, editingPrompt, readPersonal, deletePersonal, expertView, expertCreationPrompt, launch, list, listExperts };
+module.exports = { skillView, creationPrompt, editingPrompt, readPersonal, deletePersonal, expertView, expertCreationPrompt, expertEditingPrompt, launch, list, listExperts };

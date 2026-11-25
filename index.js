@@ -3,7 +3,7 @@ import { DEMO_SHIPMENT, DEMO_SNAPSHOT_AT } from './demo-data.js';
 import { AUTHORING_SKILL_NAME, AUTHORING_INSTRUCTIONS, EDITOR_SKILL_NAME, EDITOR_INSTRUCTIONS } from './skill-authoring.js';
 import { registerPersonalSkills } from './personal-skill-store.js';
 import { createArtifactTool, saveArtifact } from './artifact-store.js';
-import { EXPERT_AUTHORING_SKILL_NAME, expertAuthoringInstructions } from './expert-authoring.js';
+import { EXPERT_AUTHORING_SKILL_NAME, expertAuthoringInstructions, EXPERT_EDITOR_SKILL_NAME, EXPERT_EDITOR_INSTRUCTIONS } from './expert-authoring.js';
 import { createRenderCardTool, RENDER_CARD_PROMPT, buildCardDocument } from './render-card.js';
 
 export const name = 'juslink-agent-center';
@@ -154,6 +154,12 @@ export function apply(ctx) {
     execute: findSubscription,
   }];
   for (const tool of tools) ctx.tools.register(tool);
+  ctx.skills.register({
+    name: EXPERT_EDITOR_SKILL_NAME, description: '从 JusBuddy 编辑已有个人场景专家，确认方案后更新原文件。',
+    source: 'bundled', invocation: { modelInvocable: false, userInvocable: true },
+    metadata: { plugin: '@juslink/agent-center-ui', scope: 'platform', internal: true },
+    content: EXPERT_EDITOR_INSTRUCTIONS,
+  });
   ctx.skills.register({
     name: EXPERT_AUTHORING_SKILL_NAME,
     description: '从智链平台新建个人场景专家时使用。先询问目标，拆解步骤并核对实际可用工具，确认方案后保存为当前用户的文件技能。',

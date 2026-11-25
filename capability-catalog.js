@@ -8,6 +8,6 @@ export const TOOL_ENTRIES = [
   { id: 'risk', title: '运输风险', description: '识别预计到港偏差，查看风险依据和跟进建议。', icon: 'shield', tool: 'juslink_risk_lookup', prompt: '检查 DEMO-SH-001 的演示运输风险，请调用 juslink_risk_lookup，区分已知事实和待确认信息。' + demo },
 ];
 export const EXPERT_ENTRIES = [
-  { id: 'logistics', title: '物流综合分析', description: '按业务单号查看运输进度、最近节点与预计到达时间。', action: '开始分析', prompt: '请询问我要分析的业务类型和单号，然后使用当前授权的智链 MCP 搜索订阅，精确核对记录，再查询追踪详情。按实际返回分析运输进度，区分预计和实际节点，说明缺失的信息。' },
-  { id: 'exceptions', title: '运输异常跟进', description: '查看已记录的异常，整理需要确认的问题与后续行动。', action: '开始跟进', prompt: '请询问我要跟进的业务范围或单号。使用当前授权的智链 MCP 搜索订阅，再按已核实的记录读取异常和节点；基于实际结果区分已确认的异常与待核实事项。' },
+  { id: 'logistics', title: '物流综合分析', description: '按业务单号查看运输进度、最近节点与预计到达时间。', capability: '根据用户提供的业务类型及业务单号，匹配已有物流订阅记录，综合分析货物当前运输状态、最近物流节点与预计到达时间，区分实际发生和预计发生的节点，并说明缺失的信息。', toolNames: ['sky-vigil-find-subscriptions','sky-vigil-tracking'], action: '开始分析', prompt: '请询问我要分析的业务类型和单号，然后使用当前授权的智链 MCP 搜索订阅，精确核对记录，再查询追踪详情。按实际返回分析运输进度，区分预计和实际节点，说明缺失的信息。' },
+  { id: 'exceptions', title: '运输异常跟进', description: '查看已记录的异常，整理需要确认的问题与后续行动。', capability: '根据用户指定的业务范围或单号，查询已核实的物流订阅及追踪记录，整理已记录的运输异常和相关节点，区分已确认异常与待核实事项，给出需要进一步确认的问题及后续跟进建议。', toolNames: ['sky-vigil-find-subscriptions','sky-vigil-tracking'], action: '开始跟进', prompt: '请询问我要跟进的业务范围或单号。使用当前授权的智链 MCP 搜索订阅，再按已核实的记录读取异常和节点；基于实际结果区分已确认的异常与待核实事项。' },
 ];
