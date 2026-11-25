@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createAuth, probe } from '../gateway-auth.js';
 
-test('a fresh MCP handshake must return tools before opening the panel', async () => {
+test('a fresh MCP handshake must return tools before using the gateway', async () => {
   const methods = [];
   const result = await probe('test', async options => {
     const rpc = JSON.parse(options.body);
@@ -31,7 +31,7 @@ function fixture() {
     modifyRecord: async (key, modify) => values.set(key, await modify()),
   };
   const auth = createAuth(credentials, {
-    check: async token => ({ state: token ? 'authorized' : 'required' }),
+    check: async token => { calls.push(['probe']); return { state: token ? 'authorized' : 'required' }; },
     discover: async () => ({ registration_endpoint: 'register', token_endpoint: 'token', authorization_endpoint: 'https://example.test/authorize' }),
     send: async (url, options) => {
       calls.push([url, options]);
@@ -42,6 +42,21 @@ function fixture() {
   });
   return { values, calls, auth };
 }
+
+test('opening the workspace and changing enterprise use only local account metadata', async () => {
+  const { auth, values, calls } = fixture();
+  assert.deepEqual(await auth.workspace(), { state: 'ready', tenants: [], activeTenant: null });
+  const tenants = [{ id: 'a', name: '企业 A', account: 'a', token: 'expired' },
+    { id: 'b', name: '企业 B', account: 'b', token: 'other-token' }];
+  values.set('juslink-agent-center/uat-accounts', { payload: { activeId: 'a', list: tenants } });
+  const workspace = await auth.workspace();
+  assert.equal(workspace.activeTenant.id, 'a');
+  assert.deepEqual(workspace.tenants[0], { id: 'a', name: '企业 A', account: 'a' });
+  assert.equal((await auth.switchTenant('b')).activeTenant.id, 'b');
+  assert.equal((await auth.removeTenant('b')).activeTenant.id, 'a');
+  assert.deepEqual(await auth.removeTenant('a'), { state: 'ready', tenants: [], activeTenant: null });
+  assert.deepEqual(calls, []);
+});
 
 test('loopback callback validates state and PKCE then verifies tools; refresh is shared', async t => {
   const { auth, values, calls } = fixture();
@@ -57,7 +72,7 @@ test('loopback callback validates state and PKCE then verifies tools; refresh is
   callback.searchParams.set('state', login.searchParams.get('state'));
   assert.equal((await fetch(callback)).status, 200);
   assert.equal(auth.progress().state, 'authorized');
-  const verifier = calls[1][1].body.get('code_verifier');
+  const verifier = calls.find(([url]) => url === 'token')[1].body.get('code_verifier');
   assert.equal(createHash('sha256').update(verifier).digest('base64url'), login.searchParams.get('code_challenge'));
   // The SIT gateway still lists tools for an expired token. Refresh before that probe.
   const expired = 'a.' + Buffer.from(JSON.stringify({ exp: 1 })).toString('base64url') + '.b';
@@ -67,7 +82,7 @@ test('loopback callback validates state and PKCE then verifies tools; refresh is
   const results = await Promise.all([auth.status(), auth.status()]);
   assert.ok(results.every(result => result.state === 'authorized'));
   assert.equal(calls.filter(([url]) => url === 'token').length, 2);
-  assert.equal(calls.at(-1)[1].body.get('grant_type'), 'refresh_token');
+  assert.equal(calls.filter(([url]) => url === 'token').at(-1)[1].body.get('grant_type'), 'refresh_token');
 });
 
 test('cancelled consent leaves the gate closed; retry gets a new state', async t => {

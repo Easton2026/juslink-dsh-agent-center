@@ -79,14 +79,14 @@ export const ARTIFACT_SKILL = `# 把成果保存到智链平台
 1. 先生成完整 HTML：内联样式、无脚本、内容自包含。单个文件不超过 2 MB。
 2. 用一句话向用户说明成果标题与要点，再调用 juslink_artifact_save，title 填中文标题，html 填完整内容，summary 填一两句说明。
 3. 等待工具结果。成功时以返回的 relativePath 与 total 作为依据。
-4. 告知用户到「智链平台 → 历史」查看；页面用沙箱渲染，脚本不会执行。
+4. 告知用户成果在当前 DSH 工作区的文件路径。
 5. 失败时说明工具返回的具体原因（如内容不是 HTML、超过大小上限、目录不可写），不要用猜测代替结果。`;
 
 export function apply(ctx) {
   ctx.systemPrompt.section({
     name: 'juslink:subscription-chat', order: 120,
     text: [
-      '当用户在对话里查询智链已有订阅并给出业务单号时，使用 juslink_search_shipment 查询当前授权账号；无需读取本地文件、配置 API Key 或跨业务试查。用户只说查一票智链订阅时，只问“想查哪一票？”。收到“海运提单 + 单号”直接查询。权限不足时引导到智链平台授权。需要按其他条件筛选时可使用已授权的智链 MCP 搜索订阅。',
+      '当用户在对话里查询智链已有订阅并给出业务单号时，使用 juslink_search_shipment 查询当前授权账号；无需读取本地文件、配置 API Key 或跨业务试查。用户只说查一票智链订阅时，只问“想查哪一票？”。收到“海运提单 + 单号”直接查询。只有查询返回需要登录或授权时，才请用户在 JusBuddy 顶部的企业菜单完成授权；网络失败或当前企业缺少这个工具的权限时直接说明原因。需要按其他条件筛选时可使用已授权的智链 MCP 搜索订阅。',
       RENDER_CARD_PROMPT,
     ].join('\n\n'),
   });
@@ -161,7 +161,7 @@ export function apply(ctx) {
   });
   ctx.skills.register({
     name: ARTIFACT_SKILL_NAME,
-    description: '把对话中生成的 HTML 成果保存到智链平台成果中心并在页面内查看时使用。先确认内容已生成，再调用保存工具，结果以工具返回为准。',
+    description: '把对话中生成的 HTML 成果保存到当前 DSH 工作区时使用。先确认内容已生成，再调用保存工具，结果以工具返回为准。',
     source: 'bundled', invocation: { modelInvocable: true, userInvocable: true },
     metadata: { plugin: '@juslink/agent-center-ui', scope: 'platform', display_name: '成果保存到平台' },
     content: ARTIFACT_SKILL,

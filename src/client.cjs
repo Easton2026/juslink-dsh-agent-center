@@ -2,36 +2,11 @@
 const React = require('react');
 const { createElement: h, useState, useEffect, useRef, useSyncExternalStore } = React;
 const PANEL_ID = 'juslink-agent-center';
-const STORAGE_KEY = 'juslink.agent-center.ui.v1';
-let records = [];
-let storageError = false;
-try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); if (Array.isArray(saved)) records = saved; } catch { storageError = true; }
-records = records.map(r => r.status === 'running' ? { ...r, status: 'interrupted', error: '页面已重载，请重新发起模拟查询。' } : r);
-const subscribers = new Set();
-const timers = new Set();
-function persist() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); storageError = false; } catch { storageError = true; }
-  subscribers.forEach(fn => fn());
-}
-function useRecords() { return useSyncExternalStore(fn => { subscribers.add(fn); return () => subscribers.delete(fn); }, () => records); }
 function Icon({ size = 20 }) {
   return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, 'aria-hidden': true },
     h('path', { d: 'M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v6H4zM14 15h6v6h-6z' }));
 }
 function button(text, action, props = {}) { return h('button', { type: 'button', onClick: action, ...props }, text); }
-function formatDate(value) { return new Date(value).toLocaleString('zh-CN', { hour12: false }); }
-const statusText = { running: '查询中', completed: '已完成', failed: '未查到数据', interrupted: '已中断' };
-function Result({ record }) {
-  if (!record) return null;
-  return h('section', { className: 'jlc-result', 'aria-live': 'polite' },
-    h('div', { className: 'jlc-result-title' }, h('h3', null, record.title), h('span', { className: 'jlc-status ' + record.status }, statusText[record.status])),
-    h('p', { className: 'jlc-muted' }, '发起于 ' + formatDate(record.startedAt)),
-    record.status === 'running' && h('p', null, '正在等待模拟工具返回…'),
-    record.error && h('p', { role: 'status' }, record.error),
-    record.result && h(React.Fragment, null,
-      h('dl', { className: 'jlc-facts' }, ...[['当前状态', record.result.status], ['运输路线', record.result.route], ['船名', record.result.vessel], ['最近节点', record.result.lastEvent], ['下一节点', record.result.nextEvent], ['查询时间', formatDate(record.result.queriedAt)]].map(([key, value]) => h('div', { key }, h('dt', null, key), h('dd', null, value)))),
-      h('p', { className: 'jlc-muted' }, '来源：' + record.result.source + '。以上为演示数据。')));
-}
 let rememberedTab = 'home';
 let lastSkillSession;
 let skillLaunchPending = false;
@@ -62,7 +37,7 @@ const toolLabels = new Map([
 ]);
 function gatewayEntry(tool) {
   const [label, summary, icon] = toolLabels.get(tool.name) || [];
-  return { id: tool.name, title: label || tool.title || tool.name, description: summary || tool.summary, icon,
+  return { id: tool.name, gateway: true, title: label || tool.title || tool.name, description: summary || tool.summary, icon,
     prompt: tool.name === 'sky-vigil-find-subscriptions' ? '查一票智链订阅' : '帮我' + (label || tool.title || tool.name) + '。使用当前智链授权，信息够了就直接办理，只问本次缺的必要信息。用中文简短给我业务结果。新增、修改或删除订阅时以我的明确要求为准。' };
 }
 function statusTone(text) {
@@ -433,7 +408,7 @@ function DynamicCardFrame({ item, sessionId, theme }) {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result?.saved) throw new Error(result?.error || '保存失败');
-      setSaveNote('已保存到成果中心 ✓');
+      setSaveNote(result.relativePath ? '已保存至 ' + result.relativePath : '已保存 HTML');
     } catch (err) {
       setSaveNote(err?.message || '保存失败');
     } finally {
@@ -448,7 +423,7 @@ function DynamicCardFrame({ item, sessionId, theme }) {
         h('strong', null, item.title || '业务结果')),
       h('div', { className: 'jlc-dyn-actions' },
         saveNote && h('span', { className: 'jlc-dyn-status', role: 'status' }, saveNote),
-        button(saving ? '保存中…' : '保存到成果中心', saveToCenter, { className: 'jlc-dyn-btn', disabled: saving || !sessionId }),
+        button(saving ? '保存中…' : '保存 HTML', saveToCenter, { className: 'jlc-dyn-btn', disabled: saving || !sessionId }),
         button('放大查看', () => setExpanded(true), { className: 'jlc-dyn-btn' }))),
     h('iframe', {
       ref: iframeRef,
@@ -547,7 +522,7 @@ function ShipmentCards({ turn, chat, sessionId }) {
         page.more && h('p', { className: 'jlc-more-tip' }, '还有更多记录，可以在对话中继续翻页查看。'))),
     ...trackingCards.map(item => h(TrackingDetailCard, { key: 'tr-' + item.groupKey, item })));
 }
-function CapabilityPage({ ctx, tools }) {
+function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy }) {
   const [pending, setPending] = useState(null);
   const [error, setError] = useState('');
   const [experts, setExperts] = useState([]);
@@ -575,10 +550,13 @@ function CapabilityPage({ ctx, tools }) {
     return () => { alive.current.active = false; ++alive.current.request; window.removeEventListener('focus', onFocus); };
   }, []);
   async function start(entry) {
-    if (capabilityLaunchPending) return;
+    if (capabilityLaunchPending || accountBusy) return;
     capabilityLaunchPending = true; setPending(entry.id); setError('');
-    try { await SkillFlow.launch(ctx, entry.prompt, id => { if (entry.scope === 'personal' || entry.id === 'create-expert') lastExpertSession = id; }); }
-    catch (reason) { if (alive.current.active) setError('未能发起对话：' + (reason.message || String(reason))); }
+    try {
+      if (entry.gateway && !await beforeLaunch(entry)) return;
+      if (!alive.current.active) return;
+      await SkillFlow.launch(ctx, entry.prompt, id => { if (entry.scope === 'personal' || entry.id === 'create-expert') lastExpertSession = id; });
+    } catch (reason) { if (alive.current.active) setError('未能发起对话：' + (reason.message || String(reason))); }
     finally { capabilityLaunchPending = false; if (alive.current.active) setPending(null); }
   }
   function createExpert() {
@@ -589,7 +567,7 @@ function CapabilityPage({ ctx, tools }) {
     const personal = isExpert && entry.scope === 'personal';
     const kind = isExpert ? (personal ? 'expert' : entry.id === 'logistics' ? 'chart' : entry.id === 'exceptions' ? 'alert' : 'expert') : entry.icon;
     return h('button', { type: 'button', className: 'jlc-tool-row jlc-capability-card' + (personal ? ' jlc-personal-card' : ''),
-      key: (isExpert ? 'expert-' : 'tool-') + entry.id, disabled: !!pending, onClick: () => start(entry),
+      key: (isExpert ? 'expert-' : 'tool-') + entry.id, disabled: !!pending || accountBusy, onClick: () => start(entry),
       'aria-label': entry.title + (personal ? '（个人专家）' : '') },
       h('span', { className: 'jlc-tool-icon' }, h(CapabilityIcon, { kind })),
       h('span', { className: 'jlc-tool-text' }, h('strong', { title: entry.title }, entry.title),
@@ -608,7 +586,7 @@ function CapabilityPage({ ctx, tools }) {
     error && h('p', { role: 'alert', className: 'jlc-skill-error' }, error),
     h('div', { className: 'jlc-cap-section' },
       h('div', { className: 'jlc-cap-heading' },
-        h('div', { className: 'jlc-cap-title' }, h('h2', null, '智链工具'), h('span', { className: 'jlc-cap-caption' }, '按授权展示当前可用的业务工具'))),
+        h('div', { className: 'jlc-cap-title' }, h('h2', null, '智链工具'), h('span', { className: 'jlc-cap-caption' }, '查询范围由当前企业授权决定'))),
       tools.length ? h('div', { className: 'jlc-cap-grid jlc-cap-grid-tools' }, ...tools.map(gatewayEntry).map(entry => capabilityCard(entry, false))) :
         h('p', { className: 'jlc-muted' }, '当前账号没有可用的智链工具。')));
 }
@@ -679,141 +657,7 @@ function SkillPage({ ctx }) {
           h('p', null, needle ? '试试其他名称或关键词。' : scope === 'personal' ? '点击“新增”，在 DSH 对话中描述你的方法。实际保存成功后，返回这里查看。' : '请确认插件已启用，再重新进入技能页。')),
     h('p', { className: 'jlc-note' }, '新增会打开 DSH 新对话，并自动带入创建技能与关联智链平台的说明。对话中写出内容不代表已保存，以文件保存成功和目录可见为准。'));
 }
-let lastArtifactSession;
-const ARTIFACT_INDEX_PATH = 'juslink-artifacts/index.json';
-function artifactSessions(ctx) {
-  const sessions = ctx.get('sessions');
-  const snapshot = sessions?.list?.getSnapshot?.();
-  if (!snapshot) return [];
-  const ordinary = snapshot.ids.filter(key => snapshot.byId[key]?.origin !== 'subagent');
-  const ordered = (lastArtifactSession ? [lastArtifactSession] : []).concat(ordinary);
-  return [...new Set(ordered)].filter(key => snapshot.byId[key]).slice(0, 8);
-}
-function remoteValue(result) {
-  if (result && typeof result === 'object' && result.ok === false) throw result.error ?? new Error('远程调用失败');
-  if (result && typeof result === 'object' && result.ok === true) return result.value;
-  return result;
-}
-function decodeBytes(value) {
-  const data = value?.data ?? value;
-  if (typeof data === 'string') return data;
-  if (data instanceof Uint8Array) return new TextDecoder('utf-8').decode(data);
-  if (data instanceof ArrayBuffer) return new TextDecoder('utf-8').decode(new Uint8Array(data));
-  if (data && Array.isArray(data.data)) return new TextDecoder('utf-8').decode(new Uint8Array(data.data));
-  throw new Error('无法解析工作区文件内容。');
-}
-function isMissingFile(reason) {
-  const text = String(reason?.code ?? '') + ' ' + String(reason?.message ?? reason ?? '');
-  return /workspace-file\/not-found|not-found|ENOENT/.test(text);
-}
-async function readArtifactFile(ctx, path, signal) {
-  const remote = ctx.get('remote.workspaceFiles');
-  if (!remote?.readBytes) throw new Error('当前 DSH 未提供工作区文件接口，无法读取成果。');
-  const candidates = artifactSessions(ctx);
-  if (!candidates.length) throw new Error('还没有可用于读取成果的 DSH 会话。');
-  let lastError;
-  for (const sessionId of candidates) {
-    signal?.throwIfAborted?.();
-    try {
-      const text = decodeBytes(remoteValue(await remote.readBytes(sessionId, path, {}, signal)));
-      lastArtifactSession = sessionId;
-      return text;
-    } catch (reason) {
-      if (reason?.name === 'AbortError') throw reason;
-      lastError = reason;
-    }
-  }
-  throw lastError;
-}
-function formatBytes(bytes) {
-  if (typeof bytes !== 'number' || !isFinite(bytes) || bytes < 0) return '';
-  return bytes < 1024 ? bytes + ' B' : (bytes / 1024).toFixed(1) + ' KB';
-}
-function MyQueriesPage({ ctx, onGoHome }) {
-  const list = useRecords();
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [opened, setOpened] = useState(null);
-  const [opening, setOpening] = useState('');
-  const [busy, setBusy] = useState(false);
-  const lifetime = useRef({ active: true, request: 0, controller: null });
-  async function refresh() {
-    const seq = ++lifetime.current.request;
-    lifetime.current.controller?.abort();
-    const controller = new AbortController();
-    lifetime.current.controller = controller;
-    setLoading(true); setError('');
-    try {
-      let text;
-      try { text = await readArtifactFile(ctx, ARTIFACT_INDEX_PATH, controller.signal); }
-      catch (reason) {
-        if (isMissingFile(reason)) { if (lifetime.current.active && seq === lifetime.current.request) { setItems([]); setNotice('还没有成果。在对话中生成 HTML 后，让 Agent 保存，回到本页即可查看。'); } return; }
-        throw reason;
-      }
-      let parsed = {};
-      try { parsed = JSON.parse(text || '{}'); } catch { throw new Error('成果索引文件格式无法解析。'); }
-      const list = Array.isArray(parsed.artifacts) ? parsed.artifacts.filter(item => item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.file === 'string') : [];
-      if (!lifetime.current.active || seq !== lifetime.current.request) return;
-      setItems(list);
-      setNotice(list.length ? '' : '还没有成果。在对话中生成 HTML 后，让 Agent 保存，回到本页即可查看。');
-    } catch (reason) {
-      if (lifetime.current.active && seq === lifetime.current.request) setError('读取成果失败：' + (reason?.message || String(reason)));
-    } finally {
-      if (lifetime.current.active && seq === lifetime.current.request) setLoading(false);
-    }
-  }
-  useEffect(() => {
-    lifetime.current.active = true;
-    void refresh();
-    return () => { lifetime.current.active = false; ++lifetime.current.request; lifetime.current.controller?.abort(); };
-  }, []);
-  async function toggle(item) {
-    if (opened?.id === item.id) { setOpened(null); return; }
-    setOpening(item.id); setError('');
-    const controller = new AbortController();
-    try {
-      const html = await readArtifactFile(ctx, 'juslink-artifacts/' + item.file, controller.signal);
-      if (lifetime.current.active) setOpened({ id: item.id, html });
-    } catch (reason) {
-      if (lifetime.current.active) setError('打开成果失败：' + (reason?.message || String(reason)));
-    } finally {
-      if (lifetime.current.active) setOpening('');
-    }
-  }
-  async function start() {
-    if (busy) return;
-    setBusy(true); setError('');
-    try { await SkillFlow.launch(ctx, '/juslink-artifact-publish 请生成一份简短的 HTML 成果，保存到智链平台成果中心。', () => {}); }
-    catch (reason) { if (lifetime.current.active) setError('打开对话失败：' + (reason?.message || String(reason))); }
-    finally { if (lifetime.current.active) setBusy(false); }
-  }
-  return h('section', { className: 'jlc-artifacts' },
-    h('div', { className: 'jlc-skills-heading' }, h('div', null, h('h1', null, '历史'), h('p', { className: 'jlc-muted' }, '查询记录与生成的 HTML 成果集中在这里查看。')),
-      h('div', { className: 'jlc-skills-actions' },
-        button(busy ? '正在打开…' : '＋ 生成并保存', start, { disabled: busy, className: 'jlc-primary' }))),
-    error && h('p', { className: 'jlc-skill-error', role: 'alert' }, error),
-    notice && h('p', { className: 'jlc-muted', role: 'status' }, notice),
-    list.length ? list.map(record => h(Result, { key: record.id, record })) : h('div', { className: 'jlc-empty' }, h('h2', null, '还没有查询记录'), h('p', null, '从「工具」页面选择场景专家或工具，在新对话中开始。'), button('去发起任务', onGoHome, { className: 'jlc-primary' })),
-    loading ? h('p', { className: 'jlc-muted', role: 'status' }, '正在读取成果目录…') :
-      items.length ? h('div', { className: 'jlc-artifact-list' }, ...items.map(item => h('article', { key: item.id, className: 'jlc-artifact-card' },
-        h('div', { className: 'jlc-artifact-head' },
-          h('div', null, h('h3', null, item.title), item.summary && h('p', { className: 'jlc-muted' }, item.summary)),
-          button(opening === item.id ? '正在读取…' : opened?.id === item.id ? '收起' : '查看', () => toggle(item), { className: 'jlc-skill-link', disabled: opening === item.id })),
-        h('div', { className: 'jlc-artifact-meta' },
-          h('span', null, '保存于 ' + (item.createdAt ? formatDate(item.createdAt) : '未知时间')),
-          formatBytes(item.bytes) && h('span', null, formatBytes(item.bytes)),
-          h('span', null, item.owner === 'personal' ? '个人成果' : '平台成果'),
-          h('span', null, '沙箱渲染 · 脚本禁用')),
-        opened?.id === item.id && h('div', { className: 'jlc-artifact-frame-wrap' },
-          h('iframe', { className: 'jlc-artifact-frame', title: item.title, sandbox: '', referrerPolicy: 'no-referrer', srcDoc: opened.html }),
-          h('p', { className: 'jlc-muted' }, '文件：' + item.file))))) :
-        h('div', { className: 'jlc-empty' }, h('h2', null, '还没有成果'), h('p', null, '在对话中生成 HTML 报告或看板后，让 Agent 保存到成果中心；保存成功后返回这里即可查看。'),
-          button('去生成一份成果', start, { disabled: busy, className: 'jlc-primary' })),
-    h('p', { className: 'jlc-note' }, '查询记录保存在本机浏览器存储；成果以 HTML 文件保存在当前 DSH 工作区的 juslink-artifacts 目录，用禁用脚本的沙箱 iframe 渲染，脚本、表单和弹窗不会执行。'));
-}
-function TenantMenu({ tenants, active, onSelect, onAdd, onRemove }) {
+function TenantMenu({ tenants, active, onSelect, onAdd, onRemove, busy }) {
   const [open, toggle] = useState(false);
   const root = useRef(null);
   const trigger = useRef(null);
@@ -831,8 +675,8 @@ function TenantMenu({ tenants, active, onSelect, onAdd, onRemove }) {
     };
   }, [open]);
   return h('div', { className: 'jlc-tenant', ref: root },
-    button(h(React.Fragment, null, h('span', null, '当前企业：'), h('strong', null, active?.name || '名称待获取'), h('i', { 'aria-hidden': true })),
-      () => toggle(!open), { ref: trigger, className: 'jlc-tenant-trigger', 'aria-expanded': open }),
+    button(h(React.Fragment, null, h('span', null, '当前企业：'), h('strong', null, active?.name || '未选择'), h('i', { 'aria-hidden': true })),
+      () => toggle(!open), { ref: trigger, className: 'jlc-tenant-trigger', disabled: busy, 'aria-expanded': open }),
     open && h('div', { className: 'jlc-tenant-menu' },
       ...tenants.map(item => h('div', { key: item.id, className: 'jlc-tenant-row', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px' } },
         button(h(React.Fragment, null,
@@ -843,41 +687,33 @@ function TenantMenu({ tenants, active, onSelect, onAdd, onRemove }) {
         onRemove && tenants.length > 1 && button('移除', e => { e.stopPropagation(); onRemove(item); }, { style: { background: 'none', border: '0', color: '#c00', fontSize: '12px', cursor: 'pointer', padding: '2px 4px', opacity: 0.75 }, title: '移除此企业授权' }))),
       button('＋ 新增企业/租户授权', () => { trigger.current?.focus({ preventScroll: true }); toggle(false); onAdd(); }, { className: 'jlc-tenant-add' })));
 }
-function Panel({ ctx, tools = [], authState, onRefreshAuth }) {
-  const tenants = authState?.tenants || (authState?.activeTenant ? [authState.activeTenant] : []);
-  const active = authState?.activeTenant || tenants[0];
+function Panel({ ctx, workspace, beforeLaunch, authDialog, accountBusy, accountError, changeAccount, onAdd }) {
+  const { tenants, activeTenant } = workspace;
+  const tools = Array.from(toolLabels.keys(), name => ({ name }));
   const [tab, updateTab] = useState(rememberedTab);
   const setTab = value => { rememberedTab = value; updateTab(value); };
-  const tabs = [['home', '工具'], ['queries', '历史'], ['skills', '技能']];
-
-  async function handleSelect(item) {
-    if (item.id === active?.id) return;
-    const res = await authRequest('switch-tenant', null, { tenantId: item.id });
-    if (res.state === 'authorized' && onRefreshAuth) onRefreshAuth(res);
-  }
-
-  async function handleRemove(item) {
-    if (!window.confirm('确认移除企业【' + item.name + '】的授权凭证吗？')) return;
-    const res = await authRequest('remove-tenant', null, { tenantId: item.id });
-    if (onRefreshAuth) onRefreshAuth(res);
-  }
+  const tabs = [['home', '工具'], ['skills', '技能']];
 
   return h('div', { className: 'jlc-panel-frame' },
-    h('div', { className: 'jlc-root jlc-workspace' + (tab === 'home' ? ' jlc-home' : '') },
+    h('div', { className: 'jlc-root jlc-workspace' + (tab === 'home' ? ' jlc-home' : ''), inert: authDialog ? true : undefined },
     h('header', { className: 'jlc-hero' + (tab === 'home' ? '' : ' jlc-hero-compact') },
       h('div', { className: 'jlc-hero-top' },
         h('div', { className: 'jlc-brand' }, h('img', { src: JUSDA_LOGO, alt: 'JUSDA 准时达' }), h('span', { className: 'jlc-brand-name' }, 'JusBuddy')),
-        h(TenantMenu, { tenants, active, onSelect: handleSelect, onAdd: () => authRequest('start').then(res => { if (res.url) window.open(res.url, '_blank', 'noopener,noreferrer'); if (onRefreshAuth) onRefreshAuth(res); }), onRemove: handleRemove })),
+        h(TenantMenu, { tenants, active: activeTenant, busy: accountBusy, onAdd,
+          onSelect: item => { if (item.id !== activeTenant?.id) void changeAccount('switch-tenant', item); },
+          onRemove: item => {
+            if (window.confirm('确认移除企业【' + item.name + '】的授权凭证吗？')) void changeAccount('remove-tenant', item);
+          },
+        })),
       tab === 'home' && h('div', { className: 'jlc-hero-body' },
         h('div', { className: 'jlc-hero-copy' }, h('h1', null, '让供应链业务更简单'), h('p', null, '连接业务工具、场景专家与智能技能')),
         h('div', { className: 'jlc-hero-wordmark', 'aria-hidden': true }, h('span', null, 'JusBuddy'), h('span', null, 'Agent')))),
 
     h('nav', { className: 'jlc-tabs jlc-workspace-tabs', 'aria-label': 'JusBuddy 工作区' }, ...tabs.map(([id, label]) => button(label, () => setTab(id), { key: id, 'aria-current': tab === id ? 'page' : undefined, className: tab === id ? 'selected' : '' }))),
     h('main', { className: 'jlc-content' },
-      storageError && h('p', { role: 'alert' }, '本机存储不可用，记录可能无法保留。'),
-      tab === 'home' && h(CapabilityPage, { ctx, tools }),
-      tab === 'queries' && h(MyQueriesPage, { ctx, onGoHome: () => setTab('home') }),
-      tab === 'skills' && h(SkillPage, { ctx }))));
+      accountError && h('p', { role: 'alert', className: 'jlc-skill-error' }, accountError),
+      tab === 'home' && h(CapabilityPage, { ctx, tools, beforeLaunch, accountBusy }),
+      tab === 'skills' && h(SkillPage, { ctx }))), authDialog);
 }
 async function authRequest(action, signal, data) {
   const response = await fetch('juslink-auth/' + action, { method: 'POST', credentials: 'same-origin',
@@ -916,50 +752,134 @@ function AuthorizationCard({ title, detail, children, onDismiss }) {
         h('h1', { role: 'status' }, title), h('p', null, detail), children));
   return modal ? h('div', { className: 'jlc-root jlc-auth-overlay' }, card) : h('main', { className: 'jlc-root jlc-auth' }, card);
 }
-function AuthorizedPanel({ ctx }) {
-  const [result, setResult] = useState({ state: 'checking' });
-  const [request, setRequest] = useState({ action: 'status' });
+function WorkspacePanel({ ctx }) {
+  const [workspace, setWorkspace] = useState(null);
+  const [dialog, setDialog] = useState(null);
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountError, setAccountError] = useState('');
+  const active = useRef(null);
+  const timer = useRef(null);
+
+  function updateWorkspace(result) {
+    if (Array.isArray(result.tenants)) {
+      setWorkspace({ tenants: result.tenants, activeTenant: result.activeTenant || null });
+    }
+  }
+
   useEffect(() => {
     const controller = new AbortController();
-    let timer;
-    async function run(action) {
-      try {
-        const next = await authRequest(action, controller.signal);
-        if (controller.signal.aborted) return;
-        if (action === 'start' && next.url) window.open(next.url, '_blank', 'noopener,noreferrer');
-        setResult(previous => next.state === 'waiting' ? { ...previous, ...next } : next);
-        if (next.state === 'waiting') timer = setTimeout(() => run('progress'), 1200);
-      } catch {
-        if (!controller.signal.aborted) setResult({ state: 'unavailable' });
+    authRequest('workspace', controller.signal).then(result => {
+      if (!controller.signal.aborted && result.state === 'ready') setWorkspace(current => current || result);
+    }).catch(() => {});
+    return () => {
+      controller.abort();
+      active.current?.abort();
+      clearTimeout(timer.current);
+    };
+  }, []);
+
+  async function changeAccount(action, item) {
+    if (active.current) return;
+    const controller = new AbortController();
+    active.current = controller;
+    setAccountBusy(true);
+    setAccountError('');
+    try {
+      const result = await authRequest(action, controller.signal, { tenantId: item.id });
+      if (controller.signal.aborted) return;
+      if (result.state === 'ready') updateWorkspace(result);
+      else setAccountError(result.detail || '企业授权未能更新，请重试。');
+    } catch {
+      if (!controller.signal.aborted) setAccountError('企业授权未能更新，请重试。');
+    } finally {
+      if (!controller.signal.aborted) {
+        active.current = null;
+        setAccountBusy(false);
       }
     }
-    run(request.action);
-    return () => { controller.abort(); clearTimeout(timer); };
-  }, [request]);
-  function begin(action) { setResult({ state: 'checking' }); setRequest({ action }); }
-  if (result.state === 'authorized') return h(Panel, { ctx, tools: result.tools, authState: result, onRefreshAuth: updated => {
-    if (updated?.state === 'waiting') {
-      setResult(prev => ({ ...prev, ...updated }));
-      setRequest({ action: 'progress' });
-    } else if (updated) {
-      setResult(updated);
+  }
+
+  async function beforeLaunch(entry) {
+    // The chat search tool checks when it receives a bill number.
+    if (entry.id === 'sky-vigil-find-subscriptions') return true;
+    if (active.current) return false;
+    const controller = new AbortController();
+    active.current = controller;
+    setAccountBusy(true);
+    try {
+      const result = await authRequest('status', controller.signal);
+      if (controller.signal.aborted) return false;
+      updateWorkspace(result);
+      if (result.state === 'required' || result.state === 'waiting') {
+        setDialog({ state: 'required' });
+        return false;
+      }
+      if (result.state !== 'authorized') throw new Error('暂时无法连接智链，请稍后重试。');
+      if (!result.tools?.some(tool => tool.name === entry.id)) throw new Error('当前企业未获此工具的权限。');
+      return true;
+    } finally {
+      if (!controller.signal.aborted) {
+        active.current = null;
+        setAccountBusy(false);
+      }
     }
-  } });
-  const waiting = result.state === 'waiting';
-  const needed = result.state === 'required';
-  const checking = result.state === 'checking';
-  return h(AuthorizationCard, { title: checking ? '正在检查授权' : needed ? '授权使用 JusBuddy' : waiting ? '请在浏览器中完成授权' : '暂时无法确认授权状态',
-    detail: checking ? '正在向智链平台确认你的访问权限。' : needed ? '使用你的智链账号登录并授权，即可进入 JusBuddy 工作台。' : waiting ? '授权成功后，这里会自动进入 JusBuddy 工作台。' : result.detail || '未能完成智链网关授权检查，请重试。' },
-        !checking && h('div', { className: 'jlc-auth-actions' },
-          waiting && result.url && h('a', { className: 'jlc-auth-action main', href: result.url, target: '_blank', rel: 'noopener noreferrer' },
-            '打开登录页', h('span', { 'aria-hidden': true }, '↗')),
-          waiting ? button('取消', () => begin('cancel'), { className: 'jlc-auth-action secondary' }) :
-            button(needed ? '去授权' : '重试', () => begin(needed ? 'start' : 'status'), { className: 'jlc-auth-action main' })));
+  }
+
+  function dismiss() {
+    const cancel = dialog?.state === 'waiting';
+    active.current?.abort();
+    active.current = null;
+    clearTimeout(timer.current);
+    setDialog(null);
+    if (cancel) void authRequest('cancel').catch(() => {});
+  }
+
+  function startAuthorization() {
+    if (active.current) return;
+    const controller = new AbortController();
+    active.current = controller;
+    setAccountError('');
+    setDialog({ state: 'starting' });
+    async function run(action) {
+      try {
+        const result = await authRequest(action, controller.signal);
+        if (controller.signal.aborted) return;
+        updateWorkspace(result);
+        if (action === 'start' && result.url) window.open(result.url, '_blank', 'noopener,noreferrer');
+        if (result.state === 'waiting') {
+          setDialog(previous => ({ ...previous, ...result }));
+          timer.current = setTimeout(() => void run('progress'), 1200);
+          return;
+        }
+        setDialog(result.state === 'authorized' ? null : result);
+      } catch {
+        if (!controller.signal.aborted) setDialog({ state: 'unavailable' });
+      }
+      if (!controller.signal.aborted) active.current = null;
+    }
+    void run('start');
+  }
+
+  let authDialog;
+  if (dialog) {
+    const waiting = dialog.state === 'waiting';
+    const starting = dialog.state === 'starting';
+    const needed = dialog.state === 'required';
+    authDialog = h(AuthorizationCard, {
+      onDismiss: dismiss,
+      title: starting ? '正在准备登录' : waiting ? '请在浏览器中完成授权' : needed ? '请先授权使用智链' : '暂时无法完成授权',
+      detail: starting ? '登录页即将打开。' : waiting ? '完成授权后可返回 JusBuddy。' : needed ? '使用智链账号授权后继续当前操作。' : dialog.detail || '请稍后重试。',
+    }, h('div', { className: 'jlc-auth-actions' },
+      waiting && dialog.url && h('a', { className: 'jlc-auth-action main', href: dialog.url, target: '_blank', rel: 'noopener noreferrer' }, '打开登录页'),
+      !waiting && !starting && button(needed ? '去授权' : '重试', startAuthorization, { className: 'jlc-auth-action main' }),
+      button('取消', dismiss, { className: 'jlc-auth-action secondary' })));
+  }
+  return h(Panel, { ctx, workspace: workspace || { tenants: [], activeTenant: null }, beforeLaunch, authDialog, accountBusy, accountError, changeAccount, onAdd: startAuthorization });
 }
 function Entry({ ctx }) {
   const store = ctx.layout.panelInfo;
   const active = useSyncExternalStore(fn => store.subscribe(fn), () => store.getSnapshot().activePanelId === PANEL_ID);
-  return active ? h(AuthorizedPanel, { ctx }) : null;
+  return active ? h(WorkspacePanel, { ctx }) : null;
 }
 exports.inject = ['slots', 'layout', 'sessions', 'uiConversation'];
 exports.apply = function apply(ctx) {
@@ -978,11 +898,7 @@ exports.apply = function apply(ctx) {
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, BoundPanel));
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, label: 'JusBuddy', order: 5 }, Icon));
   ctx.effect(() => {
-    persist();
     return () => {
-      timers.forEach(clearTimeout); timers.clear();
-      records = records.map(r => r.status === 'running' ? { ...r, status: 'interrupted', error: '插件已停用，请重新发起模拟查询。' } : r);
-      persist();
       if (ctx.layout.panelInfo.getSnapshot().activePanelId === PANEL_ID) ctx.layout.selectPanel(null);
     };
   }, 'juslink: lifecycle');

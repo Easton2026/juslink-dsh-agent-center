@@ -199,6 +199,19 @@ export function createAuth(credentials, { check = probe, discover = endpoints, s
     await credentials.modifyRecord(accountsKey, async () => ({ kind: 'grant', payload: accounts }));
   };
 
+  async function workspace(accounts) {
+    const saved = accounts || await storedAccounts();
+    const tenants = saved.list.map(({ id, name, account }) => ({ id, name, account }));
+    if (!tenants.length && !accounts) {
+      const legacyToken = (await credentials.resolve(accessRef))?.value;
+      if (legacyToken) {
+        const { id, name, account } = resolveTenantInfo(legacyToken);
+        tenants.push({ id, name, account });
+      }
+    }
+    return { state: 'ready', tenants, activeTenant: tenants.find(t => t.id === saved.activeId) || tenants[0] || null };
+  }
+
   async function exchange(endpoint, client, params) {
     const response = await send(endpoint, { method: 'POST', body: new URLSearchParams({
       client_id: client.id, client_secret: client.secret, resource, ...params,
@@ -371,12 +384,7 @@ export function createAuth(credentials, { check = probe, discover = endpoints, s
     if (target.refreshToken) await credentials.set(refreshRef, target.refreshToken);
     else await credentials.unset(refreshRef);
 
-    const probeResult = await check(target.token);
-    return {
-      ...probeResult,
-      activeTenant: { id: target.id, name: target.name, account: target.account },
-      tenants: accounts.list.map(t => ({ id: t.id, name: t.name, account: t.account })),
-    };
+    return workspace(accounts);
   }
 
   async function removeTenant(tenantId) {
@@ -394,11 +402,12 @@ export function createAuth(credentials, { check = probe, discover = endpoints, s
     } else {
       await credentials.unset(accessRef);
       await credentials.unset(refreshRef);
-      return required;
+      return workspace(accounts);
     }
   }
 
   return {
+    workspace: () => workspace(),
     status() {
       if (pending?.state === 'waiting') return Promise.resolve({ state: 'waiting', url: pending.url });
       return checking ??= status().finally(() => { checking = undefined; });
@@ -430,7 +439,7 @@ export function registerAuth(ctx) {
   const auth = createAuth(ctx.credentials);
   ctx.effect(() => () => auth.dispose(), 'juslink: close OAuth callback');
 
-  const actions = ['status', 'start', 'progress', 'cancel', 'switch-tenant', 'remove-tenant'];
+  const actions = ['workspace', 'status', 'start', 'progress', 'cancel', 'switch-tenant', 'remove-tenant'];
   for (const action of actions) {
     ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/juslink-auth/' + action,
       handler: async (req, res) => {

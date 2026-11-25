@@ -81,14 +81,14 @@ export async function saveArtifact({ cwd, title, html, summary }) {
     relativePath: ARTIFACT_DIR + '/' + entry.file,
     indexPath: ARTIFACT_DIR + '/' + ARTIFACT_INDEX,
     total: artifacts.length,
-    note: '已保存到当前 DSH 工作区的成果目录。请到「智链平台 → 成果中心」刷新查看，页面以禁用脚本的沙箱方式渲染。',
+    note: '已保存到当前 DSH 工作区。请使用返回的相对路径打开成果文件。',
   };
 }
 
 export function createArtifactTool(ctx) {
   return {
     name: ARTIFACT_TOOL,
-    description: '把对话中已经生成好的 HTML 成果保存到智链平台成果中心，供用户在平台页面内直接查看。用户要求把报告、看板或图表保存到平台时使用；只在 HTML 生成并检查过之后调用，不用于查询业务数据。',
+    description: '把对话中已经生成好的 HTML 成果保存到当前 DSH 工作区的成果目录。用户要求把报告、看板或图表保存到平台时使用；只在 HTML 生成并检查过之后调用，不用于查询业务数据。',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -116,7 +116,7 @@ export function createArtifactTool(ctx) {
         },
         required: ['saved', 'id', 'title', 'createdAt', 'bytes', 'relativePath', 'indexPath', 'total', 'note'],
       },
-      render: (_args, value) => [{ type: 'text', text: '【已保存到成果中心】\n' + JSON.stringify(value, null, 2) }],
+      render: (_args, value) => [{ type: 'text', text: '【已保存 HTML】\n' + JSON.stringify(value, null, 2) }],
     },
     isConcurrencySafe: () => false,
     async execute(args, execution = {}) {
