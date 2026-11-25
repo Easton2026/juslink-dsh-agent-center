@@ -928,3 +928,26 @@
 .jlc-root .jlc-expert-details .jlc-expert-source { margin-top:6px; font-size:11px; }
 .jlc-expert-details .jlc-skill-manage { margin-top:12px; border-top:1px solid #eceef5; }
 @media(max-width:420px) { .jlc-root .jlc-expert-tile .jlc-tool-text { padding-right:83px; } .jlc-expert-details { padding:14px 16px; } }
+
+/* v0.2.18 — shared card copy and independent inline disclosure. */
+.jlc-root .jlc-expert-head {
+  position:relative; display:flex; align-items:center; width:100%; height:144px; padding:18px 20px;
+}
+.jlc-root .jlc-expert-shell .jlc-expert-head .jlc-expert-tile {
+  position:absolute; inset:0; margin:0; padding:0; width:100%; height:100%; min-height:0; max-height:none;
+}
+.jlc-root .jlc-expert-shell .jlc-expert-head .jlc-expert-tile:focus-visible { outline:2px solid #746de0; outline-offset:-3px; }
+.jlc-expert-head>.jlc-personal-mark { z-index:2; pointer-events:none; }
+.jlc-root .jlc-expert-copy { position:relative; z-index:1; width:100%; min-width:0; padding-right:112px; pointer-events:none; display:flex; flex-direction:column; align-items:stretch; justify-content:center; gap:7px; text-align:left; }
+.jlc-root .jlc-card-heading { display:block; min-width:0; width:100%; font-size:17px; line-height:1.4; font-weight:600; color:var(--jlc-ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.jlc-root .jlc-card-brief { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; min-width:0; max-height:3em; overflow:hidden; text-overflow:ellipsis; white-space:normal; overflow-wrap:anywhere; color:#687086; font-size:13px; line-height:1.5; margin:0; }
+.jlc-root .jlc-detail-toggle { display:inline-flex; align-self:flex-start; align-items:center; justify-content:flex-start; gap:4px; padding:0; margin:0; background:transparent; border:0; border-radius:0; box-shadow:none; font-size:11px; line-height:1.5; font-weight:400; color:#777e9b; cursor:pointer; pointer-events:auto; white-space:nowrap; }
+.jlc-root .jlc-detail-toggle:hover { color:var(--jlc-blue); background:transparent; }
+.jlc-root .jlc-detail-toggle svg { flex:none; }
+.jlc-root .jlc-detail-toggle[aria-expanded=true] svg { transform:rotate(180deg); }
+.jlc-root .jlc-unified-skills .jlc-skill-card { display:block; min-height:132px; padding:0; }
+.jlc-root .jlc-skill-summary { display:flex; flex-direction:column; justify-content:center; align-items:stretch; gap:7px; min-height:130px; padding:16px 18px; text-align:left; }
+.jlc-root .jlc-skill-summary .jlc-card-heading { font-size:15px; padding-right:12px; }
+.jlc-root .jlc-skill-summary .jlc-card-brief { font-size:12px; }
+.jlc-root .jlc-unified-skills .jlc-skill-detail { border-top:1px solid #eceef5; margin:0; padding:14px 18px 16px; }
+@media(max-width:420px) { .jlc-root .jlc-expert-head { padding:16px; } .jlc-root .jlc-expert-copy { padding-right:83px; } }

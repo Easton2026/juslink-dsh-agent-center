@@ -527,6 +527,12 @@ function ShipmentCards({ turn, chat, sessionId }) {
         page.more && h('p', { className: 'jlc-more-tip' }, '还有更多记录，可以在对话中继续翻页查看。'))),
     ...trackingCards.map(item => h(TrackingDetailCard, { key: 'tr-' + item.groupKey, item })));
 }
+function DetailToggle({ expanded, title, onClick }) {
+  return h('button', {type:'button',className:'jlc-detail-toggle','aria-expanded':expanded,'aria-label':(expanded?'收起':'查看')+title+'详情',onClick},
+    expanded?'收起详情':'查看详情',
+    h('svg',{viewBox:'0 0 16 16',width:13,height:13,fill:'none',stroke:'currentColor',strokeWidth:1.5,'aria-hidden':true},
+      h('path',{d:'m4 6 4 4 4-4',strokeLinecap:'round',strokeLinejoin:'round'})));
+}
 function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy, page }) {
   const [pending, setPending] = useState(null);
   const [error, setError] = useState('');
@@ -639,23 +645,26 @@ function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy, page }) {
   const visible = [...EXPERT_ENTRIES, ...experts];
   function capabilityCard(entry, isExpert) {
     const personal = isExpert && entry.scope === 'personal';
-    const kind = isExpert ? (personal ? 'expert' : entry.id === 'logistics' ? 'chart' : entry.id === 'exceptions' ? 'alert' : 'expert') : entry.icon;
-    const main = h('button', { type: 'button', className: 'jlc-tool-row jlc-capability-card' + (isExpert ? ' jlc-expert-tile' : ' jlc-tool-tile') + (personal ? ' jlc-personal-card' : ''),
-      key: (isExpert ? 'expert-' : 'tool-') + entry.id, disabled: !!pending || accountBusy, onClick: () => start(entry),
-      'aria-label': entry.title + (personal ? '（个人专家）' : '') },
-      h('span', { className: 'jlc-tile-body' },
-        h('span', { className: 'jlc-tool-text' }, h('strong', { title: entry.title }, entry.title),
-          h('span', { className: 'jlc-cap-description', title: entry.description || undefined }, pending === entry.id ? '正在处理…' : entry.description)),
-        !isExpert && h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '›')),
-      isExpert && h(ExpertIllustration, { kind }),
-      personal && h('span', { className: 'jlc-personal-mark', title: '个人场景专家', 'aria-label': '个人场景专家' }, h(CapabilityIcon, { kind: 'user' })));
-    if(!isExpert) return main;
-    const expanded=opened===entry.id;
+    const description = pending === entry.id ? '正在处理…' : entry.description;
+    if (!isExpert) return h('button', {type:'button',className:'jlc-tool-row jlc-capability-card jlc-tool-tile',
+      key:'tool-'+entry.id,disabled:!!pending || accountBusy,onClick:()=>start(entry),'aria-label':entry.title},
+      h('span',{className:'jlc-tile-body'},
+        h('span',{className:'jlc-tool-text'},h('strong',{title:entry.title},entry.title),
+          h('span',{className:'jlc-cap-description',title:entry.description || undefined},description)),
+        h('span',{className:'jlc-tool-arrow','aria-hidden':true},'›')));
+    const kind = personal ? 'expert' : entry.id === 'logistics' ? 'chart' : entry.id === 'exceptions' ? 'alert' : 'expert';
+    const expanded = opened === entry.id;
     return h('article',{className:'jlc-expert-shell'+(expanded?' expanded':'')+(personal?' personal':''),key:entry.id},
-      h('div',{className:'jlc-expert-head'},main,
-        h('button',{type:'button',className:'jlc-expert-toggle','aria-expanded':expanded,'aria-label':(expanded?'收起':'查看')+entry.title+'详情',onClick:()=>setOpened(current=>current===entry.id?null:entry.id)},
-          expanded?'收起详情':'查看详情',
-          h('svg',{viewBox:'0 0 16 16',width:13,height:13,fill:'none',stroke:'currentColor',strokeWidth:1.5,'aria-hidden':true},h('path',{d:'m4 6 4 4 4-4',strokeLinecap:'round',strokeLinejoin:'round'})))),
+      h('div',{className:'jlc-expert-head'},
+        h('button',{type:'button',className:'jlc-tool-row jlc-capability-card jlc-expert-tile'+(personal?' jlc-personal-card':''),
+          disabled:!!pending || accountBusy,onClick:()=>start(entry),
+          'aria-label':entry.title+(personal?'（个人专家）':'')},
+          h(ExpertIllustration,{kind})),
+        personal && h('span',{className:'jlc-personal-mark',title:'个人场景专家','aria-label':'个人场景专家'},h(CapabilityIcon,{kind:'user'})),
+        h('div',{className:'jlc-expert-copy'},
+          h('strong',{className:'jlc-card-heading',title:entry.title},entry.title),
+          h('p',{className:'jlc-card-brief',title:entry.description || undefined},description),
+          h(DetailToggle,{expanded,title:entry.title,onClick:()=>setOpened(current=>current===entry.id?null:entry.id)}))),
       expanded && expertDetails(entry));
   }
   return h('section', { className: 'jlc-launch jlc-capability-home', 'aria-label': page === 'experts' ? '场景专家' : '智链工具' },
@@ -816,13 +825,11 @@ function SkillPage({ ctx }) {
     loading && !skills.length ? h('p', {className:'jlc-muted',role:'status'}, '正在读取 DSH 技能目录…') :
       skills.length ? h('div', {className:'jlc-skill-grid'}, ...skills.map(item => h('article', {className:'jlc-skill-card',key:item.name},
         item.scope === 'personal' && h('span', {className:'jlc-personal-mark',title:'个人技能','aria-label':'个人技能'}, h(CapabilityIcon, {kind:'user'})),
-        h('div', {className:'jlc-skill-icon','aria-hidden':true}, h(CapabilityIcon, {kind:'layers'})),
-        h('div', {className:'jlc-skill-copy'},
-          h('button', {type:'button',onClick:() => setOpened(opened === item.name ? null : item.name),className:'jlc-skill-title',title:item.title,'aria-expanded':opened === item.name},
-            h('span', {className:'jlc-skill-title-text'}, item.title),
-            h('svg', {viewBox:'0 0 16 16',width:16,height:16,fill:'none',stroke:'currentColor',strokeWidth:1.5,'aria-hidden':true,className:'jlc-skill-chevron'}, h('path',{d:'m4 6 4 4 4-4',strokeLinecap:'round',strokeLinejoin:'round'}))),
-          h('p', {className:'jlc-cap-description',title:item.description || undefined}, item.description),
-          opened === item.name && expanded(item))))) :
+        h('div', {className:'jlc-skill-summary'},
+          h('strong', {className:'jlc-card-heading',title:item.title},item.title),
+          h('p', {className:'jlc-card-brief',title:item.description || undefined},item.description),
+          h(DetailToggle,{expanded:opened===item.name,title:item.title,onClick:()=>setOpened(current=>current===item.name?null:item.name)})),
+        opened === item.name && expanded(item)))) :
         h('div', {className:'jlc-skill-empty'}, h('h2', null, '还没有可用技能'),
           h('p', null, '点击“新增技能”，在 DSH 对话中描述你的方法，保存成功后返回查看。')));
 }
