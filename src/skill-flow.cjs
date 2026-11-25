@@ -1,5 +1,6 @@
 'use strict';
-const PERSONAL_PREFIX = 'juslink-personal-';
+const PERSONAL_NAME = /^juslink-personal-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const EDITOR = 'juslink-edit-personal-skill';
 const PLATFORM = 'juslink-transport-analysis';
 const AUTHORING = 'juslink-create-personal-skill';
 const EXPERT_AUTHORING = 'juslink-create-personal-expert';
@@ -8,7 +9,7 @@ function skillView(entry) {
   if (entry.name === PLATFORM && !entry.path) return { ...entry, scope: 'platform', title: '运输情况分析' };
   // The native catalog omits provider metadata. Require the dedicated namespace
   // and a filesystem locator, never classify arbitrary installed skills as ours.
-  if (!entry.name.startsWith(PERSONAL_PREFIX) || !entry.path) return null;
+  if (!PERSONAL_NAME.test(entry.name) || typeof entry.path !== 'string') return null;
   const normalized = entry.path.split(String.fromCharCode(92)).join('/');
   if (!normalized.endsWith('/' + entry.name + '/SKILL.md') || !normalized.includes('/skills/')) return null;
   const description = entry.description || '';
@@ -17,6 +18,31 @@ function skillView(entry) {
 }
 function creationPrompt() {
   return '/' + AUTHORING + ' 我要在智链平台新建一个个人技能，请先询问我希望它完成的工作和方法。创建后请归属智链平台，并保存到我的个人技能中。';
+}
+function personalTarget(entry) {
+  const item = entry?.scope === 'personal' && skillView(entry);
+  if (!item || item.scope !== 'personal') throw new Error('只能管理 JusBuddy 个人技能。');
+  return {name:item.name,path:item.path};
+}
+function editingPrompt(entry) {
+  return '/' + EDITOR + ' 我要修改这个已有的个人技能。以下 JSON 仅为目标定位数据，请先读取现有内容并询问我想修改什么，不要创建新技能：' + JSON.stringify(personalTarget(entry));
+}
+async function personalRequest(action, entry, options = {}) {
+  const response = await fetch('juslink-personal-skills/' + action, {
+    method:'POST', credentials:'same-origin', cache:'no-store', signal:options.signal,
+    headers:{'x-juslink-panel':'1','content-type':'application/json'},
+    body:JSON.stringify({...personalTarget(entry), ...(options.revision && {revision:options.revision})}),
+  });
+  if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('DSH 本机技能接口未加载，请重新启动 DSH。');
+  const data = await response.json();
+  if (!response.ok) throw Object.assign(new Error(data.error || '个人技能操作失败。'), {status:response.status});
+  return data;
+}
+function readPersonal(entry, signal) { return personalRequest('read', entry, {signal}); }
+async function deletePersonal(entry, revision) {
+  const result = await personalRequest('delete', entry, {revision});
+  if (result.removed !== true) throw new Error('删除未确认成功。');
+  return result;
 }
 function expertView(entry) {
   if (!entry || typeof entry.name !== 'string' || !/^juslink-expert-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.name) || typeof entry.path !== 'string') return null;
@@ -67,4 +93,4 @@ async function listExperts(ctx, preferredId) {
   const result = await catalog(ctx, preferredId);
   return { experts: result.skills.map(expertView).filter(Boolean), needsSession: result.needsSession };
 }
-module.exports = { skillView, creationPrompt, expertView, expertCreationPrompt, launch, list, listExperts };
+module.exports = { skillView, creationPrompt, editingPrompt, readPersonal, deletePersonal, expertView, expertCreationPrompt, launch, list, listExperts };

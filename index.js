@@ -1,6 +1,7 @@
 import { registerAuth } from './gateway-auth.js';
 import { DEMO_SHIPMENT, DEMO_SNAPSHOT_AT } from './demo-data.js';
-import { AUTHORING_SKILL_NAME, AUTHORING_INSTRUCTIONS } from './skill-authoring.js';
+import { AUTHORING_SKILL_NAME, AUTHORING_INSTRUCTIONS, EDITOR_SKILL_NAME, EDITOR_INSTRUCTIONS } from './skill-authoring.js';
+import { registerPersonalSkills } from './personal-skill-store.js';
 import { createArtifactTool, saveArtifact } from './artifact-store.js';
 import { EXPERT_AUTHORING_SKILL_NAME, expertAuthoringInstructions } from './expert-authoring.js';
 import { createRenderCardTool, RENDER_CARD_PROMPT, buildCardDocument } from './render-card.js';
@@ -128,6 +129,7 @@ export function apply(ctx) {
       },
     }), 'juslink: save inline card artifact');
   }
+  registerPersonalSkills(ctx);
   const findSubscription = registerAuth(ctx);
   const tools = [createArtifactTool(ctx), createRenderCardTool(), {
     name: 'juslink_search_shipment',
@@ -172,6 +174,12 @@ export function apply(ctx) {
     source: 'bundled', invocation: { modelInvocable: true, userInvocable: true },
     metadata: { plugin: '@juslink/agent-center-ui', scope: 'platform', display_name: '运输情况分析' },
     content: TRANSPORT_ANALYSIS,
+  });
+  ctx.skills.register({
+    name: EDITOR_SKILL_NAME, description: '从 JusBuddy 编辑已有个人技能，先读取现有内容，确认后更新原文件。',
+    source: 'bundled', invocation: { modelInvocable: false, userInvocable: true },
+    metadata: { plugin: '@juslink/agent-center-ui', scope: 'platform', internal: true },
+    content: EDITOR_INSTRUCTIONS,
   });
   ctx.skills.register({
     name: AUTHORING_SKILL_NAME, description: '从智链平台新增个人工作方法时使用，指导创建、实际保存并关联智链平台。',

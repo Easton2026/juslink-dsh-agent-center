@@ -67,7 +67,9 @@ test('host registers the authoring skill as explicit-only with real tool schemas
   const tools = [], skills = [];
   apply({ effect() {}, systemPrompt: { section() {} }, tools: { register: tool => tools.push(tool) }, skills: { register: skill => skills.push(skill) }, workingDirectory: {} });
   assert.deepEqual(tools.map(t => t.name), ['juslink_artifact_save', 'juslink_render_card', 'juslink_search_shipment']);
-  assert.equal(skills.length, 4);
+  assert.equal(skills.length, 5);
+  const editor = skills.find(s => s.name === 'juslink-edit-personal-skill');
+  assert.deepEqual(editor.invocation, { modelInvocable: false, userInvocable: true });
   const authoring = skills.find(s => s.name === 'juslink-create-personal-expert');
   assert.deepEqual(authoring.invocation, { modelInvocable: false, userInvocable: true });
   const catalog = JSON.parse(authoring.content.split('## 插件工具参考目录\n')[1].split('\n\n不要修改平台专家')[0]);

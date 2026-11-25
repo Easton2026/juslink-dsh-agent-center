@@ -1,6 +1,6 @@
 {
   "name": "@juslink/agent-center-ui",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "JusBuddy · 准时达智链供应链助手：场景专家、多企业授权、全量动态业务视图与个人技能",
   "type": "module",
   "license": "UNLICENSED",
@@ -11,6 +11,7 @@
     "cordis.patch.yml",
     "README.md",
     "skill-authoring.js",
+    "personal-skill-store.js",
     "capability-catalog.js",
     "mock-tools.js",
     "artifact-store.js",

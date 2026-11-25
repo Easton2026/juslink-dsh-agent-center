@@ -889,3 +889,14 @@
   .jlc-root .jlc-expert-tile .jlc-tool-text>.jlc-cap-description { padding-right:83px; }
   .jlc-root.jlc-workspace .jlc-float-nav button { padding:8px 3px; }
 }
+
+/* v0.2.16 — consistent skill details and personal-only management. */
+.jlc-root .jlc-unified-skills .jlc-skill-title { display:flex; align-items:center; gap:8px; padding-right:0; min-width:0; }
+.jlc-skill-title-text { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.jlc-skill-chevron { flex:none; color:#858ba0; transition:transform .15s; }
+.jlc-skill-title[aria-expanded=true] .jlc-skill-chevron { transform:rotate(180deg); }
+.jlc-skill-manage { display:flex; justify-content:flex-end; gap:16px; padding:6px 0 0; }
+.jlc-root .jlc-skill-manage .jlc-skill-link { color:var(--jlc-blue); padding:4px 2px; }
+.jlc-root .jlc-skill-manage .jlc-skill-delete { color:#9a4343; }
+.jlc-root .jlc-skill-manage .jlc-skill-link:disabled { opacity:.45; cursor:not-allowed; }
+.jlc-skill-detail-error { color:#9b493b; font-size:12px; }

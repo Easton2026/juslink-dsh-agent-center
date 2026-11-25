@@ -10,6 +10,7 @@ function button(text, action, props = {}) { return h('button', { type: 'button',
 let rememberedTab = 'tools';
 let lastSkillSession;
 let skillLaunchPending = false;
+const deletedPersonalSkills = new Set();
 let capabilityLaunchPending = false;
 let lastExpertSession;
 function CapabilityIcon({ kind }) {
@@ -638,14 +639,24 @@ function SkillPage({ ctx }) {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [opened, setOpened] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailRetry, setDetailRetry] = useState(0);
   const lifetime = useRef({ active: true, request: 0 });
+  const deleting = useRef(false);
   async function refresh() {
     const seq = ++lifetime.current.request;
     setLoading(true); setError('');
     try {
       const result = await SkillFlow.list(ctx, lastSkillSession);
+      const visible = await Promise.all(result.skills.map(async item => {
+        if (item.scope !== 'personal' || !deletedPersonalSkills.has(item.name)) return item;
+        try { await SkillFlow.readPersonal(item); deletedPersonalSkills.delete(item.name); return item; }
+        catch { return null; }
+      }));
       if (!lifetime.current.active || seq !== lifetime.current.request) return;
-      setSkills(result.skills);
+      const next = visible.filter(Boolean);
+      setSkills(next);
+      setOpened(current => current && next.some(item => item.name === current) ? current : null);
       setNotice(result.needsSession ? '还没有可用于读取技能目录的 DSH 会话。点击“新增”，即可开始创建。' : '');
     } catch (reason) {
       if (lifetime.current.active && seq === lifetime.current.request) setError('读取技能目录失败：' + (reason.message || String(reason)));
@@ -657,39 +668,85 @@ function SkillPage({ ctx }) {
     lifetime.current.active = true;
     void refresh();
     const onFocus = () => { void refresh(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') onFocus(); };
     window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
     let timer;
     let known = ctx.get('sessions')?.list.getSnapshot().ids.join(',');
     const stop = ctx.get('sessions')?.list.subscribe(() => {
       const next = ctx.get('sessions').list.getSnapshot().ids.join(',');
       if (next !== known) { known = next; clearTimeout(timer); timer = setTimeout(onFocus, 250); }
     });
-    return () => { lifetime.current.active = false; ++lifetime.current.request; clearTimeout(timer); stop?.(); window.removeEventListener('focus', onFocus); };
+    return () => { lifetime.current.active = false; ++lifetime.current.request; clearTimeout(timer); stop?.(); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibility); };
   }, []);
+  useEffect(() => {
+    const item = skills.find(value => value.name === opened);
+    setDetail(null);
+    if (!item || item.scope !== 'personal') return;
+    const controller = new AbortController();
+    let active = true;
+    setDetail({name:item.name,state:'loading'});
+    SkillFlow.readPersonal(item, controller.signal).then(value => {
+      if (active) setDetail({name:item.name,state:'ready',...value});
+    }).catch(reason => {
+      if (active) setDetail({name:item.name,state:'error',error:reason.message || String(reason)});
+    });
+    return () => { active = false; controller.abort(); };
+  }, [opened, skills, detailRetry]);
   async function start(prompt) {
-    if (skillLaunchPending) return;
+    if (skillLaunchPending || deleting.current) return;
     skillLaunchPending = true; setBusy(true); setError('');
     try { await SkillFlow.launch(ctx, prompt, id => { lastSkillSession = id; }); }
     catch (reason) { if (lifetime.current.active) setError('打开对话失败：' + (reason.message || String(reason))); }
     finally { skillLaunchPending = false; if (lifetime.current.active) setBusy(false); }
   }
-  const visible = skills;
-  return h('section', { className: 'jlc-skills jlc-unified-skills', 'aria-label': '我的技能' },
-    h('div', { className: 'jlc-page-actions jlc-skills-actions' },
-      button(busy ? '正在打开…' : '＋ 新增技能', () => start(SkillFlow.creationPrompt()), { disabled: busy, className: 'jlc-create-expert' })),
-    error && h('p', { className: 'jlc-skill-error', role: 'alert' }, error),
-    notice && h('p', { className: 'jlc-muted', role: 'status' }, notice),
-    loading && !skills.length ? h('p', { className: 'jlc-muted', role: 'status' }, '正在读取 DSH 技能目录…') :
-      visible.length ? h('div', { className: 'jlc-skill-grid' }, ...visible.map(item => h('article', { className: 'jlc-skill-card', key: item.name },
-        item.scope === 'personal' && h('span', { className: 'jlc-personal-mark', title: '个人技能', 'aria-label': '个人技能' }, h(CapabilityIcon, { kind: 'user' })),
-        h('div', { className: 'jlc-skill-icon', 'aria-hidden': true }, h(CapabilityIcon, { kind:'layers' })),
-        h('div', { className: 'jlc-skill-copy' },
-          button(item.title, () => setOpened(opened === item.name ? null : item.name), { className: 'jlc-skill-title', title: item.title, 'aria-expanded': opened === item.name }),
-          h('p', { className:'jlc-cap-description', title: item.description || undefined }, item.description),
-          opened === item.name && h('div', { className: 'jlc-skill-detail' }, h('p', null, '调用标识：/' + item.name),
-            item.scope === 'platform' ? h('pre', null, PLATFORM_SKILL_CONTENT) : h('p', null, '技能文件：' + item.path),
-            h('p', { className: 'jlc-muted' }, item.scope === 'platform' ? '平台技能为只读。新增自己的方法时，请使用右上角“新增技能”。' : '此技能使用 DSH 原生文件机制加载，更新或重装智链插件不会覆盖此文件。')))))) :
-        h('div', { className: 'jlc-skill-empty' }, h('h2', null, '还没有可用技能'),
+  async function remove(item, revision) {
+    if (skillLaunchPending || deleting.current || !revision) return;
+    if (!window.confirm('确认删除个人技能【' + item.title + '】？删除后将不再作为技能加载。')) return;
+    deleting.current = true; setBusy(true); setError('');
+    try {
+      await SkillFlow.deletePersonal(item, revision);
+      deletedPersonalSkills.add(item.name);
+      if (!lifetime.current.active) return;
+      ++lifetime.current.request;
+      setSkills(current => current.filter(value => value.name !== item.name));
+      setOpened(current => current === item.name ? null : current);
+      await refresh();
+    } catch (reason) {
+      if (lifetime.current.active) { setError('删除技能失败：' + (reason.message || String(reason))); setDetailRetry(n => n+1); }
+    } finally { deleting.current = false; if (lifetime.current.active) setBusy(false); }
+  }
+  function expanded(item) {
+    const personal = item.scope === 'personal';
+    const value = detail?.name === item.name ? detail : null;
+    const ready = personal && value?.state === 'ready';
+    return h('div', {className:'jlc-skill-detail'},
+      h('p', null, '调用标识：/' + item.name),
+      !personal ? h('pre', null, PLATFORM_SKILL_CONTENT) :
+        ready ? h('pre', null, value.content) :
+        value?.state === 'error' ? h('div', {className:'jlc-skill-detail-error',role:'alert'}, value.error, ' ',
+          button('重试', () => setDetailRetry(n => n+1), {className:'jlc-skill-link',disabled:busy})) :
+          h('p', {className:'jlc-muted',role:'status'}, '正在读取技能正文…'),
+      personal && h('div', {className:'jlc-skill-manage'},
+        button('编辑', () => start(SkillFlow.editingPrompt(item)), {className:'jlc-skill-link',disabled:busy || !ready}),
+        button('删除', () => remove(item, value?.revision), {className:'jlc-skill-link jlc-skill-delete',disabled:busy || !ready})));
+  }
+  return h('section', {className:'jlc-skills jlc-unified-skills','aria-label':'我的技能'},
+    h('div', {className:'jlc-page-actions jlc-skills-actions'},
+      button(busy ? '正在处理…' : '＋ 新增技能', () => start(SkillFlow.creationPrompt()), {disabled:busy,className:'jlc-create-expert'})),
+    error && h('p', {className:'jlc-skill-error',role:'alert'}, error),
+    notice && h('p', {className:'jlc-muted',role:'status'}, notice),
+    loading && !skills.length ? h('p', {className:'jlc-muted',role:'status'}, '正在读取 DSH 技能目录…') :
+      skills.length ? h('div', {className:'jlc-skill-grid'}, ...skills.map(item => h('article', {className:'jlc-skill-card',key:item.name},
+        item.scope === 'personal' && h('span', {className:'jlc-personal-mark',title:'个人技能','aria-label':'个人技能'}, h(CapabilityIcon, {kind:'user'})),
+        h('div', {className:'jlc-skill-icon','aria-hidden':true}, h(CapabilityIcon, {kind:'layers'})),
+        h('div', {className:'jlc-skill-copy'},
+          h('button', {type:'button',onClick:() => setOpened(opened === item.name ? null : item.name),className:'jlc-skill-title',title:item.title,'aria-expanded':opened === item.name},
+            h('span', {className:'jlc-skill-title-text'}, item.title),
+            h('svg', {viewBox:'0 0 16 16',width:16,height:16,fill:'none',stroke:'currentColor',strokeWidth:1.5,'aria-hidden':true,className:'jlc-skill-chevron'}, h('path',{d:'m4 6 4 4 4-4',strokeLinecap:'round',strokeLinejoin:'round'}))),
+          h('p', {className:'jlc-cap-description',title:item.description || undefined}, item.description),
+          opened === item.name && expanded(item))))) :
+        h('div', {className:'jlc-skill-empty'}, h('h2', null, '还没有可用技能'),
           h('p', null, '点击“新增技能”，在 DSH 对话中描述你的方法，保存成功后返回查看。')));
 }
 function TenantMenu({ tenants, active, onSelect, onAdd, onRemove, busy }) {
