@@ -839,13 +839,13 @@
   border:0; border-radius:999px; background:#fff; box-shadow:0 1px 5px #272c8210;
 }
 .jlc-root .jlc-capability-card.jlc-tool-tile {
-  display:flex; flex-direction:row; align-items:stretch; padding:15px 16px;
+  display:flex; flex-direction:row; align-items:center; padding:15px 16px;
   height:96px; min-height:96px; max-height:96px;
-  border:1px solid #e9ebf4; border-radius:12px; background:#fff;
+  border:1px solid #e9ebf4; border-radius:12px; background:linear-gradient(115deg,#fff 60%,#f7f7ff);
   box-shadow:0 2px 6px #28316b05;
 }
-.jlc-tool-tile .jlc-tile-body { padding:0; align-items:flex-start; gap:8px; }
-.jlc-root .jlc-tool-tile .jlc-tool-text { gap:6px; }
+.jlc-tool-tile .jlc-tile-body { padding:0; align-items:center; gap:8px; }
+.jlc-root .jlc-tool-tile .jlc-tool-text { gap:6px; justify-content:center; text-align:left; }
 .jlc-root .jlc-tool-tile .jlc-tool-text strong { font-size:15px; line-height:1.4; font-weight:600; }
 .jlc-root .jlc-tool-tile .jlc-tool-text>.jlc-cap-description { font-size:12px; color:#687086; min-height:0; }
 .jlc-root .jlc-tool-tile .jlc-tool-arrow {
@@ -871,6 +871,7 @@
 .jlc-expert-art { position:absolute; bottom:10px; right:14px; width:100px; height:72px; pointer-events:none; }
 .jlc-expert-art svg { display:block; width:100%; height:100%; }
 .jlc-root .jlc-capability-card:hover:not(:disabled) { border-color:#c7c9ee; background-color:#fafaff; }
+.jlc-root .jlc-capability-card.jlc-tool-tile:hover:not(:disabled) { background:linear-gradient(115deg,#fff 60%,#f7f7ff); }
 .jlc-unified-skills .jlc-skill-card {
   display:flex; flex-direction:column; align-items:stretch; gap:10px;
   padding:16px 18px; min-height:132px; border:1px solid #e9ebf4;
