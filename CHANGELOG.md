@@ -1,5 +1,12 @@
 # 更新记录
 
+## 0.2.9 · 2026-11-25 工作台首页视觉升级
+
+- 采用 JUSDA 白金标识、深宝蓝几何品牌头部与错位 JusBuddy Agent 字标；工具页展示完整头部，历史与技能页使用紧凑头部。
+- 平台与个人专家统一展示，个人专家使用右上角个人图标；整卡点击沿用原 DSH 对话发起流程。
+- 智链工具采用响应式紧凑卡片网格，保留动态授权工具列表、企业切换、历史及技能功能。
+- 同步更新前端源码、内嵌品牌资源及运行 bundle。
+
 ## 0.2.8 · 2026-11-25 修复内嵌业务卡片底部留白问题
 
 - 修复内嵌业务视图 `iframe` 测高使用 `documentElement.scrollHeight` 导致卡片“只增高不缩高”、短内容或收起折叠区后底部留白的问题：改为基于 `body`（`display: flow-root; height: auto`）的 `getBoundingClientRect().height` 与 `ResizeObserver(document.body)` 精确自适应高度。

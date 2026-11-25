@@ -37,7 +37,6 @@ let lastSkillSession;
 let skillLaunchPending = false;
 let capabilityLaunchPending = false;
 let lastExpertSession;
-let rememberedExpertScope = 'platform';
 function CapabilityIcon({ kind }) {
   const paths = {
     box: ['m3 7 9-4 9 4-9 4-9-4Z', 'M3 7v10l9 4 9-4V7', 'M12 11v10', 'm7.5 5 9 4'],
@@ -46,6 +45,10 @@ function CapabilityIcon({ kind }) {
     document: ['M7 3h7l4 4v14H6V3h1Z', 'M14 3v5h4', 'M9 12h6', 'M9 16h5'],
     port: ['M4 20h16', 'M6 17V9h12v8', 'M4 9h16L12 3 4 9Z', 'M10 12v5', 'M14 12v5'],
     shield: ['m12 3 8 3v5c0 5-8 10-8 10S4 16 4 11V6l8-3Z', 'M12 8v5', 'M12 16h.01'],
+    chart: ['M4 20h16','M6 17v-5h3v5z','M11 17V8h3v9z','M16 17V4h3v13z'],
+    alert: ['M10.3 4.5 2.8 18a1.6 1.6 0 0 0 1.4 2.4h15.6a1.6 1.6 0 0 0 1.4-2.4L13.7 4.5a1.9 1.9 0 0 0-3.4 0Z','M12 9v4','M12 16.5h.01'],
+    user: ['M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z','M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2Z'],
+    expert: ['M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z','M19 14v6','M16 17h6'],
   };
   return h('svg', { width: 21, height: 21, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
     kind === 'clock' && h('circle', { cx: 12, cy: 12, r: 9 }), ...(paths[kind] || paths.box).map((d, i) => h('path', { key: i, d })));
@@ -54,7 +57,7 @@ const toolLabels = new Map([
   ['sky-vigil-manage-subscription', ['订阅与管理', '建立追踪，并管理已有订阅', 'document']],
   ['sky-vigil-find-subscriptions', ['搜索订阅', '找到需要查看的业务记录', 'box']],
   ['sky-vigil-tracking', ['追踪详情', '查看运输进度和清关情况', 'route']],
-  ['sky-vigil-overview', ['统计概览', '了解订阅数量与分类情况', 'clock']],
+  ['sky-vigil-overview', ['统计概览', '了解订阅数量与分类情况', 'chart']],
   ['sky-vigil-reference', ['参考数据', '核对运输公司与状态含义', 'port']],
 ]);
 function gatewayEntry(tool) {
@@ -547,20 +550,17 @@ function ShipmentCards({ turn, chat, sessionId }) {
 function CapabilityPage({ ctx, tools }) {
   const [pending, setPending] = useState(null);
   const [error, setError] = useState('');
-  const [scope, setScope] = useState(rememberedExpertScope);
   const [experts, setExperts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
-  const [needsSession, setNeedsSession] = useState(false);
   const alive = useRef({ active: true, request: 0 });
-  function selectScope(value) { rememberedExpertScope = value; setScope(value); }
   async function refresh() {
     const seq = ++alive.current.request;
     setLoading(true); setCatalogError('');
     try {
       const result = await SkillFlow.listExperts(ctx, lastExpertSession);
       if (!alive.current.active || seq !== alive.current.request) return;
-      setExperts(result.experts); setNeedsSession(result.needsSession);
+      setExperts(result.experts);
     } catch (reason) {
       if (alive.current.active && seq === alive.current.request) setCatalogError('读取个人专家失败：' + (reason.message || String(reason)));
     } finally {
@@ -582,34 +582,35 @@ function CapabilityPage({ ctx, tools }) {
     finally { capabilityLaunchPending = false; if (alive.current.active) setPending(null); }
   }
   function createExpert() {
-    selectScope('personal');
     void start({ id: 'create-expert', prompt: SkillFlow.expertCreationPrompt() });
   }
-  const visible = scope === 'platform' ? EXPERT_ENTRIES : experts;
-  return h('section', { className: 'jlc-launch' },
-    h('div', { className: 'jlc-expert-heading' }, h('h1', { className: 'jlc-launch-heading' }, '场景专家'),
-      h('div', { className: 'jlc-expert-actions' },
-        button(pending === 'create-expert' ? '正在打开…' : '＋ 新建场景专家', createExpert, { disabled: !!pending, className: 'jlc-primary' }))),
-    h('div', { className: 'jlc-skill-scopes jlc-expert-scopes', role: 'tablist', 'aria-label': '场景专家来源' },
-      ...[['platform', '平台提供', EXPERT_ENTRIES.length], ['personal', '我的专家', loading ? '…' : experts.length]].map(([key, label, count]) => button(label + ' · ' + count, () => selectScope(key), { key, role: 'tab', 'aria-selected': scope === key, className: scope === key ? 'selected' : '' }))),
-    catalogError && h('p', { className: 'jlc-skill-error', role: 'alert' }, catalogError),
-    scope === 'personal' && loading && !experts.length ? h('p', { className: 'jlc-muted', role: 'status' }, '正在读取我的场景专家…') :
-    visible.length ? h('div', { className: 'jlc-workflows' }, ...visible.map(entry => h('article', { key: entry.id, className: 'jlc-workflow' },
-      h('h2', null, entry.title), h('p', null, entry.description),
-      button(pending === entry.id ? '正在打开…' : entry.action, () => start(entry), { disabled: !!pending, className: 'jlc-workflow-start', 'aria-label': entry.action + '：' + entry.title })))) :
-      !catalogError && h('div', { className: 'jlc-expert-empty' }, h('h2', null, '创建你的第一个场景专家'),
-        h('p', null, needsSession ? '点击新建，在 DSH 对话中描述你想解决的问题。' : '描述业务目标，让 DSH 帮你组合工具、整理步骤，保存为可重复使用的专家。'),
-        button('新建场景专家', createExpert, { disabled: !!pending, className: 'jlc-workflow-start' })),
-    scope === 'personal' && h('p', { className: 'jlc-muted jlc-expert-note' }, '保存在当前 DSH 用户的个人技能中。创建并保存成功后，返回这里查看。'),
+  const visible = [...EXPERT_ENTRIES, ...experts];
+  function capabilityCard(entry, isExpert) {
+    const personal = isExpert && entry.scope === 'personal';
+    const kind = isExpert ? (personal ? 'expert' : entry.id === 'logistics' ? 'chart' : entry.id === 'exceptions' ? 'alert' : 'expert') : entry.icon;
+    return h('button', { type: 'button', className: 'jlc-tool-row jlc-capability-card' + (personal ? ' jlc-personal-card' : ''),
+      key: (isExpert ? 'expert-' : 'tool-') + entry.id, disabled: !!pending, onClick: () => start(entry),
+      'aria-label': entry.title + (personal ? '（个人专家）' : '') },
+      h('span', { className: 'jlc-tool-icon' }, h(CapabilityIcon, { kind })),
+      h('span', { className: 'jlc-tool-text' }, h('strong', null, entry.title),
+        h('span', null, pending === entry.id ? '正在打开新对话…' : entry.description)),
+      h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '›'),
+      personal && h('span', { className: 'jlc-personal-mark', title: '个人场景专家', 'aria-label': '个人场景专家' }, h(CapabilityIcon, { kind: 'user' })));
+  }
+  return h('section', { className: 'jlc-launch jlc-capability-home' },
+    h('div', { className: 'jlc-cap-section' },
+      h('div', { className: 'jlc-cap-heading' },
+        h('div', { className: 'jlc-cap-title' }, h('h2', null, '场景专家'), h('span', { className: 'jlc-cap-caption' }, '面向完整业务场景的专业能力')),
+        button(pending === 'create-expert' ? '正在打开…' : '＋ 新建场景专家', createExpert, { disabled: !!pending, className: 'jlc-create-expert' })),
+      h('div', { className: 'jlc-cap-grid jlc-cap-grid-experts' }, ...visible.map(entry => capabilityCard(entry, true))),
+      loading && h('p', { className: 'jlc-muted jlc-cap-status', role: 'status' }, '正在读取个人场景专家…'),
+      catalogError && h('p', { className: 'jlc-skill-error', role: 'alert' }, catalogError)),
     error && h('p', { role: 'alert', className: 'jlc-skill-error' }, error),
-    h('h2', { className: 'jlc-launch-heading jlc-tools-heading' }, '已授权工具'),
-    tools.length ? h('div', { className: 'jlc-tool-list' }, ...tools.map(gatewayEntry).map(entry =>
-      h('button', { type: 'button', className: 'jlc-tool-row', key: entry.id, disabled: !!pending, onClick: () => start(entry), 'aria-label': entry.title },
-        h('span', { className: 'jlc-tool-icon' }, h(CapabilityIcon, { kind: entry.icon })),
-        h('span', { className: 'jlc-tool-text' }, h('strong', null, entry.title), h('span', null, pending === entry.id ? '正在打开新对话…' : entry.description)),
-        h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '↗')))) :
-      h('p', { className: 'jlc-muted' }, '当前账号没有可用的智链工具。'),
-    h('p', { className: 'jlc-launch-note' }, '查询范围由当前 SIT 授权账号决定。顶部租户切换仅供演示。'));
+    h('div', { className: 'jlc-cap-section' },
+      h('div', { className: 'jlc-cap-heading' },
+        h('div', { className: 'jlc-cap-title' }, h('h2', null, '智链工具'), h('span', { className: 'jlc-cap-caption' }, '按授权展示当前可用的业务工具'))),
+      tools.length ? h('div', { className: 'jlc-cap-grid jlc-cap-grid-tools' }, ...tools.map(gatewayEntry).map(entry => capabilityCard(entry, false))) :
+        h('p', { className: 'jlc-muted' }, '当前账号没有可用的智链工具。')));
 }
 function SkillPage({ ctx }) {
   const [scope, setScope] = useState('platform');
@@ -862,10 +863,14 @@ function Panel({ ctx, tools = [], authState, onRefreshAuth }) {
   }
 
   return h('div', { className: 'jlc-panel-frame' },
-    h('div', { className: 'jlc-root' + (tab === 'home' ? ' jlc-home' : '') },
-    h('header', { className: 'jlc-header' },
-      h('div', { className: 'jlc-brand' }, h('img', { src: LOGO, alt: 'JusBuddy' }), h('span', { className: 'jlc-brand-name' }, 'JusBuddy')),
-      h(TenantMenu, { tenants, active, onSelect: handleSelect, onAdd: () => authRequest('start').then(res => { if (res.url) window.open(res.url, '_blank', 'noopener,noreferrer'); if (onRefreshAuth) onRefreshAuth(res); }), onRemove: handleRemove })),
+    h('div', { className: 'jlc-root jlc-workspace' + (tab === 'home' ? ' jlc-home' : '') },
+    h('header', { className: 'jlc-hero' + (tab === 'home' ? '' : ' jlc-hero-compact') },
+      h('div', { className: 'jlc-hero-top' },
+        h('div', { className: 'jlc-brand' }, h('img', { src: JUSDA_LOGO, alt: 'JUSDA 准时达' }), h('span', { className: 'jlc-brand-name' }, 'JusBuddy')),
+        h(TenantMenu, { tenants, active, onSelect: handleSelect, onAdd: () => authRequest('start').then(res => { if (res.url) window.open(res.url, '_blank', 'noopener,noreferrer'); if (onRefreshAuth) onRefreshAuth(res); }), onRemove: handleRemove })),
+      tab === 'home' && h('div', { className: 'jlc-hero-body' },
+        h('div', { className: 'jlc-hero-copy' }, h('h1', null, '让供应链业务更简单'), h('p', null, '连接业务工具、场景专家与智能技能')),
+        h('div', { className: 'jlc-hero-wordmark', 'aria-hidden': true }, h('span', null, 'JusBuddy'), h('span', null, 'Agent')))),
 
     h('nav', { className: 'jlc-tabs jlc-workspace-tabs', 'aria-label': 'JusBuddy 工作区' }, ...tabs.map(([id, label]) => button(label, () => setTab(id), { key: id, 'aria-current': tab === id ? 'page' : undefined, className: tab === id ? 'selected' : '' }))),
     h('main', { className: 'jlc-content' },
