@@ -46,6 +46,8 @@ test('buildCardDocument injects fixed design system CSS, theme attribute, and in
   assert.equal(doc.includes(DESIGN_SYSTEM_CSS), true);
   assert.equal(doc.includes('juslink-frame-height'), true);
   assert.equal(doc.includes('juslink-frame-copy'), true);
+  assert.equal(doc.includes('getBoundingClientRect().height'), true);
+  assert.equal(doc.includes('documentElement.scrollHeight'), false);
 });
 
 test('createRenderCardTool validates inputs and returns sanitized card payload', async () => {

@@ -1,5 +1,9 @@
 # 更新记录
 
+## 0.2.8 · 2026-11-25 修复内嵌业务卡片底部留白问题
+
+- 修复内嵌业务视图 `iframe` 测高使用 `documentElement.scrollHeight` 导致卡片“只增高不缩高”、短内容或收起折叠区后底部留白的问题：改为基于 `body`（`display: flow-root; height: auto`）的 `getBoundingClientRect().height` 与 `ResizeObserver(document.body)` 精确自适应高度。
+
 ## 0.2.7 · 2026-11-25 插件更名为 JusBuddy 并同步多企业切换源码
 
 - 插件展示名称统一更名为 **JusBuddy**（新增 `locale/zh.json`、`locale/en.json` 插件元数据标题，同步更新左侧栏入口、工作台标题、授权页、内嵌视图标签与文档说明；保留包名 `@juslink/agent-center-ui` 以平滑升级兼容）。

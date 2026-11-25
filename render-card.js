@@ -20,7 +20,9 @@ export const DESIGN_SYSTEM_CSS = `:root{
   --gray-soft:#232836;--row-line:#262c3b;--dot-border:#4b556b;--bullet:#6e8efb;--footer-ink:#8792a6;--footer-b:#b0bacb;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+html{height:auto}
 body{
+  display:flow-root;height:auto;
   background:var(--bg);color:var(--ink);
   font-family:system-ui,-apple-system,"PingFang SC","Segoe UI","Hiragino Sans GB","Microsoft YaHei",sans-serif;
   font-size:13.5px;line-height:1.55;-webkit-font-smoothing:antialiased;padding:16px 18px 18px;
@@ -215,7 +217,7 @@ export function buildCardDocument({ title = '智链业务视图', html = '', the
   const safeTitle = String(title || '智链业务视图').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
   const bodyContent = sanitizeCardHtml(html);
   const interactiveScript = withResizeScript && frameId
-    ? `<script>(function(){var id=${JSON.stringify(frameId)};function send(){var h=Math.max(document.documentElement.scrollHeight||0,document.body?document.body.scrollHeight:0);parent.postMessage({type:'juslink-frame-height',id:id,height:h},'*');}if(typeof ResizeObserver!=='undefined'){new ResizeObserver(send).observe(document.documentElement);}document.addEventListener('toggle',function(){setTimeout(send,0);},true);document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('[data-copy]'):null;if(!btn)return;var val=btn.getAttribute('data-copy')||'';if(!val)return;parent.postMessage({type:'juslink-frame-copy',id:id,text:val},'*');var prev=btn.textContent;btn.textContent='已复制';btn.classList.add('copied');setTimeout(function(){btn.textContent=prev||'复制';btn.classList.remove('copied');},1500);});window.addEventListener('load',send);send();})();</script>`
+    ? `<script>(function(){var id=${JSON.stringify(frameId)};function send(){var b=document.body;var h=b?Math.ceil(b.getBoundingClientRect().height):0;if(h>0)parent.postMessage({type:'juslink-frame-height',id:id,height:h},'*');}if(typeof ResizeObserver!=='undefined'&&document.body){new ResizeObserver(send).observe(document.body);}document.addEventListener('toggle',function(){requestAnimationFrame(send);},true);document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('[data-copy]'):null;if(!btn)return;var val=btn.getAttribute('data-copy')||'';if(!val)return;parent.postMessage({type:'juslink-frame-copy',id:id,text:val},'*');var prev=btn.textContent;btn.textContent='已复制';btn.classList.add('copied');setTimeout(function(){btn.textContent=prev||'复制';btn.classList.remove('copied');},1500);});window.addEventListener('load',send);requestAnimationFrame(send);send();})();</script>`
     : '';
   return `<!DOCTYPE html>
 <html lang="zh-CN" data-theme="${theme === 'dark' ? 'dark' : 'light'}">

@@ -365,7 +365,7 @@ function buildInlineCardDocument({ title, html, theme, frameId, withInteractiveS
   const safeTitle = String(title || '智链业务视图').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
   const bodyContent = sanitizeInlineCardHtml(html);
   const interactiveScript = withInteractiveScript && frameId
-    ? `<script>(function(){var id=${JSON.stringify(frameId)};function send(){var h=Math.max(document.documentElement.scrollHeight||0,document.body?document.body.scrollHeight:0);parent.postMessage({type:'juslink-frame-height',id:id,height:h},'*');}if(typeof ResizeObserver!=='undefined'){new ResizeObserver(send).observe(document.documentElement);}document.addEventListener('toggle',function(){setTimeout(send,0);},true);document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('[data-copy]'):null;if(!btn)return;var val=btn.getAttribute('data-copy')||'';if(!val)return;parent.postMessage({type:'juslink-frame-copy',id:id,text:val},'*');var prev=btn.textContent;btn.textContent='已复制';btn.classList.add('copied');setTimeout(function(){btn.textContent=prev||'复制';btn.classList.remove('copied');},1500);});window.addEventListener('load',send);send();})();</script>`
+    ? `<script>(function(){var id=${JSON.stringify(frameId)};function send(){var b=document.body;var h=b?Math.ceil(b.getBoundingClientRect().height):0;if(h>0)parent.postMessage({type:'juslink-frame-height',id:id,height:h},'*');}if(typeof ResizeObserver!=='undefined'&&document.body){new ResizeObserver(send).observe(document.body);}document.addEventListener('toggle',function(){requestAnimationFrame(send);},true);document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('[data-copy]'):null;if(!btn)return;var val=btn.getAttribute('data-copy')||'';if(!val)return;parent.postMessage({type:'juslink-frame-copy',id:id,text:val},'*');var prev=btn.textContent;btn.textContent='已复制';btn.classList.add('copied');setTimeout(function(){btn.textContent=prev||'复制';btn.classList.remove('copied');},1500);});window.addEventListener('load',send);requestAnimationFrame(send);send();})();</script>`
     : '';
   return `<!DOCTYPE html>
 <html lang="zh-CN" data-theme="${theme === 'dark' ? 'dark' : 'light'}">
@@ -384,7 +384,7 @@ ${interactiveScript}
 function DynamicCardFrame({ item, sessionId, theme }) {
   const iframeRef = useRef(null);
   const frameId = 'jlc-frame-' + item.id;
-  const [height, setHeight] = useState(320);
+  const [height, setHeight] = useState(120);
   const [saving, setSaving] = useState(false);
   const [saveNote, setSaveNote] = useState('');
   const [expanded, setExpanded] = useState(false);
@@ -396,7 +396,7 @@ function DynamicCardFrame({ item, sessionId, theme }) {
       const data = event.data;
       if (!data || typeof data !== 'object') return;
       if (data.type === 'juslink-frame-height' && data.id === frameId && event.source === iframeRef.current?.contentWindow) {
-        const next = Math.min(Math.max(Number(data.height) || 220, 140), 2400);
+        const next = Math.min(Math.max(Math.ceil(Number(data.height) || 120), 64), 2400);
         setHeight(next);
       } else if (data.type === 'juslink-frame-copy' && (data.id === frameId || data.id === frameId + '-modal') && typeof data.text === 'string' && data.text) {
         if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
