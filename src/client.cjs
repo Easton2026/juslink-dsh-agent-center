@@ -573,11 +573,11 @@ function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy, page }) {
     return h('button', { type: 'button', className: 'jlc-tool-row jlc-capability-card' + (isExpert ? ' jlc-expert-tile' : ' jlc-tool-tile') + (personal ? ' jlc-personal-card' : ''),
       key: (isExpert ? 'expert-' : 'tool-') + entry.id, disabled: !!pending || accountBusy, onClick: () => start(entry),
       'aria-label': entry.title + (personal ? '（个人专家）' : '') },
-      isExpert ? h('span', { className: 'jlc-tool-icon' }, h(CapabilityIcon, { kind })) : h(ToolIllustration, { kind }),
       h('span', { className: 'jlc-tile-body' },
         h('span', { className: 'jlc-tool-text' }, h('strong', { title: entry.title }, entry.title),
           h('span', { className: 'jlc-cap-description', title: entry.description || undefined }, pending === entry.id ? '正在打开新对话…' : entry.description)),
-        h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '›')),
+        !isExpert && h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '›')),
+      isExpert && h(ExpertIllustration, { kind }),
       personal && h('span', { className: 'jlc-personal-mark', title: '个人场景专家', 'aria-label': '个人场景专家' }, h(CapabilityIcon, { kind: 'user' })));
   }
   return h('section', { className: 'jlc-launch jlc-capability-home', 'aria-label': page === 'experts' ? '场景专家' : '智链工具' },
@@ -591,25 +591,47 @@ function CapabilityPage({ ctx, tools, beforeLaunch, accountBusy, page }) {
       tools.length ? h('div', { className: 'jlc-cap-grid jlc-cap-grid-tools' }, ...tools.map(gatewayEntry).map(entry => capabilityCard(entry, false))) :
         h('p', { className: 'jlc-muted' }, '当前账号没有可用的智链工具。'));
 }
-function ToolIllustration({ kind }) {
-  const shape = (tag, props, ...children) => h(tag, props, ...children);
-  const rect = (x,y,width,height,fill,rx=3) => shape('rect',{x,y,width,height,fill,rx});
-  const path = (d,fill,stroke,strokeWidth=2) => shape('path',{d,fill,stroke,strokeWidth,strokeLinecap:'round',strokeLinejoin:'round'});
-  const circle = (cx,cy,r,fill) => shape('circle',{cx,cy,r,fill});
+function ExpertIllustration({ kind }) {
+  const uid = React.useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const front = uid + '-front', side = uid + '-side', ink = uid + '-ink';
+  const g = (tag, props, ...children) => h(tag, props, ...children);
+  const r = (x,y,width,height,fill,rx=4,extra={}) => g('rect',{x,y,width,height,fill,rx,...extra});
+  const p = (d,fill,stroke='none',strokeWidth=1,extra={}) => g('path',{d,fill,stroke,strokeWidth,strokeLinecap:'round',strokeLinejoin:'round',...extra});
+  const c = (cx,cy,r,fill) => g('circle',{cx,cy,r,fill});
+  const f = 'url(#'+front+')', s = 'url(#'+side+')', i = 'url(#'+ink+')';
   const art = {
-    document: () => [rect(65,18,57,64,'#b7c4ff',6),rect(56,12,57,64,'#fff',6),path('M94 12v17h19','#d9e2ff','#9baeff',1),rect(65,35,37,4,'#9bafff'),rect(65,45,31,4,'#b5c1f7'),rect(65,55,24,4,'#b5c1f7'),circle(112,70,13,'#343bc9'),path('M106 70l4 4 8-9','none','#fff',2.6)],
-    box: () => [path('M53 34l30-15 30 15-30 15Z','#c0ceff'),path('M53 34v33l30 15V49Z','#7e97f2'),path('M83 49l30-15v33L83 82Z','#526de3'),path('M68 27l30 15','none','#fff',3),circle(113,58,19,'#fff'),shape('circle',{cx:113,cy:58,r:13,fill:'#dae4ff',stroke:'#354bd4',strokeWidth:3}),path('M126 71l12 12','none','#354bd4',6)],
-    route: () => [path('M52 63C60 35 78 75 95 43S122 26 136 40','none','#8197ef',5),path('M52 63C60 35 78 75 95 43S122 26 136 40','none','#fff',1.6),circle(52,63,9,'#333bc9'),circle(52,63,3,'#fff'),path('M136 57s-14-15-14-22a14 14 0 1 1 28 0c0 7-14 22-14 22Z','#4351da'),circle(136,35,5,'#fff')],
-    chart: () => [rect(50,15,93,65,'#c8d4ff',7),rect(44,10,93,65,'#fff',7),path('M57 63h66','none','#c4cff4'),rect(61,44,13,19,'#9cafff'),rect(79,34,13,29,'#7189ef'),rect(97,21,13,42,'#3f52db'),path('M58 37l22-13 13 5 27-15','none','#7189ef',2),circle(120,14,3,'#4351da')],
-    port: () => [path('M51 39l40-24 40 24Z','#526de3'),rect(56,39,70,35,'#fff',3),rect(65,43,11,27,'#9cadf6'),rect(85,43,11,27,'#9cadf6'),rect(105,43,11,27,'#9cadf6'),rect(50,73,82,6,'#526de3'),circle(137,66,12,'#343bc9'),path('M132 66h10M137 61v10','none','#fff',2)],
+    chart: () => [
+      g('g',{transform:'rotate(7 65 42)'},r(26,13,80,57,s,8),r(31,18,70,47,'#dbe1ff',5)),
+      r(14,14,80,56,f,8,{stroke:'#dce2fb',strokeWidth:1}),r(21,21,66,42,'#fff',4),
+      p('M27 54h53','none','#e0e5fa',1.2),r(29,42,10,12,'#a9b8f8',2),r(44,34,10,20,'#7e94f1',2),r(59,27,10,27,i,2),
+      p('M29 34l17-9 12 4 18-12','none','#687ce8',2.2),c(76,17,3,'#4254c8'),
+      g('g',{transform:'translate(79 55)'},c(9,9,10,'#3436bd'),p('M5 9l3 3 5-6','none','#fff',1.8))
+    ],
+    alert: () => [
+      p('M57 8Q63 0 69 8L108 65Q114 76 101 76H21Q8 76 14 65Z',s),
+      p('M48 8Q54 0 60 8L99 65Q105 76 92 76H12Q-1 76 5 65Z',f,'#c9d3fa',1),
+      p('M48 15Q54 7 60 15L93 64Q96 69 90 69H17Q11 69 15 64Z','#f6f7ff'),
+      r(50,29,8,22,i,4),c(54,60,4.3,'#4b49cf'),
+      c(97,62,12,'#e5e9ff'),p('M92 62h10M97 57v10','none','#747fdf',1.7)
+    ],
+    expert: () => [
+      p('M60 8Q64 7 65 12L72 31Q73 34 77 35L96 42Q101 44 96 48L77 55Q73 57 72 61L65 79Q63 85 59 79L52 61Q50 57 46 55L27 48Q22 45 27 42L46 35Q50 34 52 30Z',s),
+      p('M51 5Q55 4 57 10L64 29Q65 32 69 34L88 40Q93 42 88 46L69 53Q65 55 64 59L57 77Q55 83 51 77L44 59Q42 55 38 53L19 46Q14 43 19 40L38 34Q42 32 44 28Z',f,'#c6d0fa',1),
+      p('M54 19l6 18 18 6-18 6-6 18-6-18-18-6 18-6Z',i),
+      p('M94 9l3 8 8 3-8 3-3 8-3-8-8-3 8-3Z','#94a4f8'),
+      p('M12 17l2 5 5 2-5 2-2 5-2-5-5-2 5-2Z','#b4bff9')
+    ]
   };
-  return h('span', { className:'jlc-tool-art', 'aria-hidden':true },
-    h('svg',{viewBox:'0 0 184 96',width:'100%',height:'100%',preserveAspectRatio:'xMidYMid meet',focusable:false},
-      shape('ellipse',{cx:92,cy:80,rx:53,ry:8,fill:'#cbd6fa'}),
-      ...(art[kind] || art.box)()));
+  return h('span', { className:'jlc-expert-art', 'aria-hidden':true },
+    g('svg',{viewBox:'0 0 120 88',width:'100%',height:'100%',preserveAspectRatio:'xMidYMid meet',focusable:false},
+      g('defs',null,
+        g('linearGradient',{id:front,x1:'0',y1:'0',x2:'1',y2:'1'},g('stop',{offset:'0%',stopColor:'#fff'}),g('stop',{offset:'100%',stopColor:'#dce3ff'})),
+        g('linearGradient',{id:side,x1:'0',y1:'0',x2:'1',y2:'1'},g('stop',{offset:'0%',stopColor:'#c8d3ff'}),g('stop',{offset:'100%',stopColor:'#8e9deb'})),
+        g('linearGradient',{id:ink,x1:'0',y1:'0',x2:'1',y2:'1'},g('stop',{offset:'0%',stopColor:'#899cff'}),g('stop',{offset:'100%',stopColor:'#3737b8'}))),
+      g('ellipse',{cx:62,cy:81,rx:48,ry:5,fill:'#e5e9f9'}),
+      ...(art[kind] || art.expert)()));
 }
 function SkillPage({ ctx }) {
-  const [query, setQuery] = useState('');
   const [skills, setSkills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -651,11 +673,9 @@ function SkillPage({ ctx }) {
     catch (reason) { if (lifetime.current.active) setError('打开对话失败：' + (reason.message || String(reason))); }
     finally { skillLaunchPending = false; if (lifetime.current.active) setBusy(false); }
   }
-  const needle = query.trim().toLocaleLowerCase();
-  const visible = skills.filter(item => !needle || [item.title, item.description, item.name].join(' ').toLocaleLowerCase().includes(needle));
+  const visible = skills;
   return h('section', { className: 'jlc-skills jlc-unified-skills', 'aria-label': '我的技能' },
     h('div', { className: 'jlc-page-actions jlc-skills-actions' },
-      h('input', { type: 'search', value: query, onChange: e => setQuery(e.target.value), placeholder: '搜索技能', 'aria-label': '搜索智链技能' }),
       button(busy ? '正在打开…' : '＋ 新增技能', () => start(SkillFlow.creationPrompt()), { disabled: busy, className: 'jlc-create-expert' })),
     error && h('p', { className: 'jlc-skill-error', role: 'alert' }, error),
     notice && h('p', { className: 'jlc-muted', role: 'status' }, notice),
@@ -666,12 +686,11 @@ function SkillPage({ ctx }) {
         h('div', { className: 'jlc-skill-copy' },
           button(item.title, () => setOpened(opened === item.name ? null : item.name), { className: 'jlc-skill-title', title: item.title, 'aria-expanded': opened === item.name }),
           h('p', { className:'jlc-cap-description', title: item.description || undefined }, item.description),
-          h('div', { className: 'jlc-skill-card-actions' }, button('在新对话中使用', () => start('/' + item.name + ' 请按这个工作方法协助我，先询问这次任务所需的信息。'), { disabled: busy, className: 'jlc-skill-link' })),
           opened === item.name && h('div', { className: 'jlc-skill-detail' }, h('p', null, '调用标识：/' + item.name),
             item.scope === 'platform' ? h('pre', null, PLATFORM_SKILL_CONTENT) : h('p', null, '技能文件：' + item.path),
             h('p', { className: 'jlc-muted' }, item.scope === 'platform' ? '平台技能为只读。新增自己的方法时，请使用右上角“新增技能”。' : '此技能使用 DSH 原生文件机制加载，更新或重装智链插件不会覆盖此文件。')))))) :
-        h('div', { className: 'jlc-skill-empty' }, h('h2', null, needle ? '没有匹配的技能' : '还没有可用技能'),
-          h('p', null, needle ? '试试其他名称或关键词。' : '点击“新增技能”，在 DSH 对话中描述你的方法，保存成功后返回查看。')));
+        h('div', { className: 'jlc-skill-empty' }, h('h2', null, '还没有可用技能'),
+          h('p', null, '点击“新增技能”，在 DSH 对话中描述你的方法，保存成功后返回查看。')));
 }
 function TenantMenu({ tenants, active, onSelect, onAdd, onRemove, busy }) {
   const [open, toggle] = useState(false);

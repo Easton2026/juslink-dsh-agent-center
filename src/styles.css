@@ -820,3 +820,71 @@
   .jlc-workspace .jlc-float-nav button { gap:4px;font-size:12px;padding:8px 3px; }
   .jlc-workspace .jlc-float-nav button svg { width:14px;height:14px; }
 }
+
+/* v0.2.13 — refined glass, text-only tools, expert profile cards. */
+.jlc-root.jlc-workspace { background:#f5f6fb; }
+.jlc-workspace .jlc-brand-name {
+  font-family:Arial,Helvetica,sans-serif; font-size:19px; font-weight:600; letter-spacing:-.35px;
+}
+.jlc-root.jlc-workspace .jlc-float-nav {
+  border:1px solid rgba(255,255,255,.38); border-radius:999px; padding:3px;
+  background:linear-gradient(180deg,rgba(221,226,247,.70),rgba(235,237,248,.88));
+  -webkit-backdrop-filter:blur(22px) saturate(135%); backdrop-filter:blur(22px) saturate(135%);
+  box-shadow:0 5px 15px rgba(25,32,100,.11),0 1px 3px rgba(25,32,100,.04);
+}
+.jlc-root.jlc-workspace .jlc-float-nav button {
+  border:0; border-radius:999px; min-height:34px; padding:8px 9px; line-height:1.2;
+}
+.jlc-root.jlc-workspace .jlc-float-nav button.selected {
+  border:0; border-radius:999px; background:#fff; box-shadow:0 1px 5px #272c8210;
+}
+.jlc-root .jlc-capability-card.jlc-tool-tile {
+  display:flex; flex-direction:row; align-items:stretch; padding:15px 16px;
+  height:96px; min-height:96px; max-height:96px;
+  border:1px solid #e9ebf4; border-radius:12px; background:#fff;
+  box-shadow:0 2px 6px #28316b05;
+}
+.jlc-tool-tile .jlc-tile-body { padding:0; align-items:flex-start; gap:8px; }
+.jlc-root .jlc-tool-tile .jlc-tool-text { gap:6px; }
+.jlc-root .jlc-tool-tile .jlc-tool-text strong { font-size:15px; line-height:1.4; font-weight:600; }
+.jlc-root .jlc-tool-tile .jlc-tool-text>.jlc-cap-description { font-size:12px; color:#687086; min-height:0; }
+.jlc-root .jlc-tool-tile .jlc-tool-arrow {
+  background:transparent; width:15px; height:21px; color:#747b93; font-size:19px;
+  line-height:1; padding:0; margin-top:0;
+}
+.jlc-root .jlc-capability-card.jlc-expert-tile {
+  position:relative; display:block; padding:19px 20px;
+  height:144px; min-height:144px; max-height:144px;
+  border:1px solid #e9ebf4; border-radius:12px;
+  background:linear-gradient(115deg,#fff 60%,#f7f7ff); box-shadow:0 2px 8px #28316b07;
+}
+.jlc-expert-tile .jlc-tile-body { width:100%; height:100%; align-items:flex-start; }
+.jlc-root .jlc-expert-tile .jlc-tool-text {
+  display:flex; flex-direction:column; width:100%; min-width:0; gap:10px;
+}
+.jlc-root .jlc-expert-tile .jlc-tool-text strong {
+  font-size:17px; font-weight:600; line-height:1.4; padding-right:22px;
+}
+.jlc-root .jlc-expert-tile .jlc-tool-text>.jlc-cap-description {
+  font-size:13px; line-height:1.5; max-height:3em; padding-right:112px; color:#687086;
+}
+.jlc-expert-art { position:absolute; bottom:10px; right:14px; width:100px; height:72px; pointer-events:none; }
+.jlc-expert-art svg { display:block; width:100%; height:100%; }
+.jlc-root .jlc-capability-card:hover:not(:disabled) { border-color:#c7c9ee; background-color:#fafaff; }
+.jlc-unified-skills .jlc-skill-card {
+  display:flex; flex-direction:column; align-items:stretch; gap:10px;
+  padding:16px 18px; min-height:132px; border:1px solid #e9ebf4;
+  background:#fff; border-radius:12px; box-shadow:0 2px 6px #28316b05;
+}
+.jlc-unified-skills .jlc-skill-icon { width:26px; height:26px; border-radius:0; background:transparent; color:#3028bc; justify-content:flex-start; }
+.jlc-unified-skills .jlc-skill-copy { flex:1; }
+.jlc-unified-skills .jlc-skill-title { font-size:15px; font-weight:600!important; }
+.jlc-unified-skills .jlc-skill-title:hover { color:var(--jlc-blue); }
+.jlc-unified-skills .jlc-skill-copy>.jlc-cap-description { font-size:12px; margin:5px 0 0; min-height:0; }
+@media(max-width:420px) {
+  .jlc-root .jlc-capability-card.jlc-tool-tile { padding:13px 12px; }
+  .jlc-root .jlc-capability-card.jlc-expert-tile { padding:16px; }
+  .jlc-expert-art { width:78px; height:62px; right:9px; }
+  .jlc-root .jlc-expert-tile .jlc-tool-text>.jlc-cap-description { padding-right:83px; }
+  .jlc-root.jlc-workspace .jlc-float-nav button { padding:8px 3px; }
+}
