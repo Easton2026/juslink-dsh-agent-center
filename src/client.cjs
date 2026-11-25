@@ -592,8 +592,8 @@ function CapabilityPage({ ctx, tools }) {
       key: (isExpert ? 'expert-' : 'tool-') + entry.id, disabled: !!pending, onClick: () => start(entry),
       'aria-label': entry.title + (personal ? '（个人专家）' : '') },
       h('span', { className: 'jlc-tool-icon' }, h(CapabilityIcon, { kind })),
-      h('span', { className: 'jlc-tool-text' }, h('strong', null, entry.title),
-        h('span', null, pending === entry.id ? '正在打开新对话…' : entry.description)),
+      h('span', { className: 'jlc-tool-text' }, h('strong', { title: entry.title }, entry.title),
+        h('span', { className: 'jlc-cap-description', title: entry.description || undefined }, pending === entry.id ? '正在打开新对话…' : entry.description)),
       h('span', { className: 'jlc-tool-arrow', 'aria-hidden': true }, '›'),
       personal && h('span', { className: 'jlc-personal-mark', title: '个人场景专家', 'aria-label': '个人场景专家' }, h(CapabilityIcon, { kind: 'user' })));
   }

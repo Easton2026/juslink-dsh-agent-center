@@ -1,4 +1,4 @@
-# JusBuddy · DSH 插件 0.2.9
+# JusBuddy · DSH 插件 0.2.10
 
 在 DSH 官方客户端内提供智链业务入口、已授权 MCP 工具、个人技能与 HTML 成果查看。通过独立 Plugin/Bundle 和 UI Slots 接入，不修改 DSH 安装包。工作区入口通过 SIT 网关检查 MCP 授权。业务工具由桌面端的智链 MCP 连接提供。
 

@@ -697,3 +697,32 @@
   .jlc-root .jlc-capability-card { min-height:76px; }
   .jlc-capability-card .jlc-tool-arrow { display:block; }
 }
+
+/* Keep capability rows compact even with verbose MCP or personal-expert descriptions. */
+.jlc-root .jlc-capability-card,
+.jlc-root .jlc-capability-card.jlc-personal-card {
+  height:90px;
+  min-height:90px;
+  max-height:90px;
+  padding:12px 14px;
+}
+.jlc-capability-card .jlc-tool-text { min-width:0; overflow:hidden; }
+.jlc-capability-card .jlc-tool-text strong {
+  display:block;
+  max-width:100%;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.jlc-capability-card .jlc-tool-text>.jlc-cap-description {
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  line-height:1.5;
+  max-height:3em;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.jlc-workspace .jlc-brand img { width:62px; height:21px; object-fit:contain; }
