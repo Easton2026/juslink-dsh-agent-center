@@ -1,6 +1,6 @@
 {
   "name": "@juslink/agent-center-ui",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "智链平台场景专家、已授权 MCP 业务工具与个人工作方法",
   "type": "module",
   "license": "UNLICENSED",
@@ -16,7 +16,8 @@
     "artifact-store.js",
     "gateway-auth.js",
     "subscription-search.js",
-    "expert-authoring.js"
+    "expert-authoring.js",
+    "render-card.js"
   ],
   "exports": {
     ".": "./index.js",

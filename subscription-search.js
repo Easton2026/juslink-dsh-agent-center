@@ -164,6 +164,48 @@ function parseEnvelope(result) {
   }
 }
 
+const HIDDEN_TECHNICAL_KEYS = new Set([
+  'id',
+  'subscriptId',
+  'containerId',
+  'transportEventId',
+  'parentId',
+  'eventStatusId',
+  'phone',
+  'mobile',
+  'phoneNumber',
+]);
+
+export function sanitizeBusinessPayload(value) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed === '' ? undefined : trimmed;
+  }
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    const items = value.map(sanitizeBusinessPayload).filter(v => v !== undefined);
+    return items.length ? items : undefined;
+  }
+  const out = {};
+  for (const [key, rawVal] of Object.entries(value)) {
+    if (HIDDEN_TECHNICAL_KEYS.has(key)) continue;
+    const cleaned = sanitizeBusinessPayload(rawVal);
+    if (cleaned !== undefined) out[key] = cleaned;
+  }
+  if (Number.isFinite(value.time) && ('zone' in value || 'timeStr' in value)) {
+    const formatted = formatZonedTime(value);
+    if (formatted) out.formattedTime = formatted.zone ? `${formatted.text} (${formatted.zone})` : formatted.text;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+export function extractRawDataPayload(result) {
+  const value = parseEnvelope(result);
+  if (!value || value.data == null) return null;
+  return sanitizeBusinessPayload(value.data) ?? null;
+}
+
 function card(row, args) {
   const filter = Object.keys(args?.filters || {})[0];
   const businessType = label(args?.business_type) || label(row.businessType) || 'SEA';
@@ -223,7 +265,7 @@ function card(row, args) {
           time: t?.shortText || '',
           zone: t?.zone || '',
         };
-      }).filter(Boolean).slice(0, 12)
+      }).filter(Boolean)
     : [];
 
   const updated = formatZonedTime(row.lastUpdatedTime, { preferLocal: true });
@@ -277,9 +319,14 @@ function card(row, args) {
 export function subscriptionPage(result, args) {
   const value = parseEnvelope(result);
   if (!value || !Array.isArray(value.data?.content)) return { state: 'unavailable' };
+  const rawRecords = value.data.content.map(row => sanitizeBusinessPayload(row)).filter(Boolean);
   return {
     state: 'ready',
     rows: value.data.content.map(row => card(row, args)),
+    rawRecords,
+    totalElements: Number.isFinite(value.data.totalElements) ? value.data.totalElements : value.data.content.length,
+    totalPages: Number.isFinite(value.data.totalPages) ? value.data.totalPages : 1,
+    page: args?.page ?? 0,
     more: value.data.last === false || (args?.page ?? 0) + 1 < value.data.totalPages,
   };
 }

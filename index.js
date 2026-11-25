@@ -1,8 +1,9 @@
 import { registerAuth } from './gateway-auth.js';
 import { DEMO_SHIPMENT, DEMO_SNAPSHOT_AT } from './demo-data.js';
 import { AUTHORING_SKILL_NAME, AUTHORING_INSTRUCTIONS } from './skill-authoring.js';
-import { createArtifactTool } from './artifact-store.js';
+import { createArtifactTool, saveArtifact } from './artifact-store.js';
 import { EXPERT_AUTHORING_SKILL_NAME, expertAuthoringInstructions } from './expert-authoring.js';
+import { createRenderCardTool, RENDER_CARD_PROMPT, buildCardDocument } from './render-card.js';
 
 export const name = 'juslink-agent-center';
 export const inject = ['tools', 'skills', 'systemPrompt', 'workingDirectory', 'credentials', 'connection', 'webServer'];
@@ -84,19 +85,67 @@ export const ARTIFACT_SKILL = `# 把成果保存到智链平台
 export function apply(ctx) {
   ctx.systemPrompt.section({
     name: 'juslink:subscription-chat', order: 120,
-    text: '当用户在对话里查询智链已有订阅并给出业务单号时，使用 juslink_search_shipment 查询当前授权账号；无需读取本地文件、配置 API Key 或跨业务试查。用户只说查一票智链订阅时，只问“想查哪一票？”。收到“海运提单 + 单号”直接查询。对话中调用订阅查询、追踪详情或统计概览工具后，回复下方会自动展示对应的业务卡片：卡片已呈现的基础字段（单号、航线、基础状态、节点、汇总计数等）不在正文重复罗列，用一句中文给出结论；若接口返回了卡片未覆盖的重要业务信息（如多箱差异明细、美国关务分单/扣留明细、中国关务分组放行差异、空运多程航段/件重、快递清关阶段、异常原因或跟进建议），请在正文中清晰补充呈现。权限不足时引导到智链平台授权。需要按其他条件筛选时可使用已授权的智链 MCP 搜索订阅。此约定仅用于智链订阅查询。',
+    text: [
+      '当用户在对话里查询智链已有订阅并给出业务单号时，使用 juslink_search_shipment 查询当前授权账号；无需读取本地文件、配置 API Key 或跨业务试查。用户只说查一票智链订阅时，只问“想查哪一票？”。收到“海运提单 + 单号”直接查询。权限不足时引导到智链平台授权。需要按其他条件筛选时可使用已授权的智链 MCP 搜索订阅。',
+      RENDER_CARD_PROMPT,
+    ].join('\n\n'),
   });
+  if (ctx.webServer?.register && ctx.connection?.requestRejection) {
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact',
+      path: '/juslink-artifacts/save',
+      handler: async (req, res) => {
+        const rejection = ctx.connection.requestRejection(req);
+        if (rejection || req.method !== 'POST' || req.headers['x-juslink-panel'] !== '1') {
+          res.writeHead(rejection || 403).end();
+          return;
+        }
+        try {
+          const chunks = [];
+          let size = 0;
+          for await (const chunk of req) {
+            size += chunk.length;
+            if (size > 1024 * 1024) { res.writeHead(413).end(); return; }
+            chunks.push(chunk);
+          }
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+          const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+          if (!sessionId) {
+            res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: '缺少当前会话标识 sessionId。' }));
+            return;
+          }
+          const cwd = await ctx.workingDirectory.ensure(sessionId);
+          if (!cwd) {
+            res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: '当前会话没有工作目录，无法保存成果。' }));
+            return;
+          }
+          const fullHtml = buildCardDocument({ title: body.title, html: body.html, theme: 'light', withResizeScript: false });
+          const saved = await saveArtifact({ cwd, title: body.title, html: fullHtml, summary: body.summary });
+          res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(saved));
+        } catch (err) {
+          res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: err?.message || '保存成果失败。' }));
+        }
+      },
+    }), 'juslink: save inline card artifact');
+  }
   const findSubscription = registerAuth(ctx);
-  const tools = [createArtifactTool(ctx), {
+  const tools = [createArtifactTool(ctx), createRenderCardTool(), {
     name: 'juslink_search_shipment',
-    description: '在当前对话中按单号查询智链 SIT 已有订阅并展示物流卡片。用户给了业务类型和完整单号就直接查询；缺单号只问想查哪一票。有多条候选时请用户核对。卡片会自动展示基础物流与追踪信息，正文先给简短中文结论、不重复抄写卡片内容，仅补充卡片未呈现的关键明细或异常说明，省略执行过程。仅查询，不建立订阅。',
+    description: '在当前对话中按单号查询智链已有订阅，完整返回后端接口的所有有效业务数据（不省略业务字段，单票且已授权追踪时同步带回追踪全量数据）。用户给了业务类型和完整单号就直接查询；缺单号只问想查哪一票。有多条候选时请用户核对。拿到结果后立即调用 juslink_render_card 生成固定风格、动态版式的内嵌业务视图（完整呈现所有有效业务数据），正文仅用 1 句中文总结结论。仅查询，不建立订阅。',
     parameters: { type: 'object', additionalProperties: false, required: ['kind','number'], properties: {
       kind: { type: 'string', enum: ['SEA','BOOKING','CONTAINER','AIR','EXPRESS','CUSTOMS_CN','CUSTOMS_US'], description: '海运提单、订舱号、箱号、空运单、快递单、中国关务单号或美国关务主单。' },
       number: { type: 'string', description: '用户给出的完整业务单号，保留前导零。' },
       page: { type: 'integer', minimum: 0, description: '页码从 0 开始，需要继续查看时翻页。' },
     } },
-    output: { schema: { type: 'object', required: ['state'], properties: {
-      state: { type: 'string' }, rows: { type: 'array', items: { type: 'object', additionalProperties: true } }, more: { type: 'boolean' },
+    output: { schema: { type: 'object', required: ['state'], additionalProperties: true, properties: {
+      state: { type: 'string' },
+      rows: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      rawRecords: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      rawTracking: { type: 'object', additionalProperties: true },
+      totalElements: { type: 'integer' },
+      totalPages: { type: 'integer' },
+      page: { type: 'integer' },
+      more: { type: 'boolean' },
     } }, render: (_input, result) => [{ type: 'text', text: JSON.stringify(result) }] },
     isConcurrencySafe: () => true,
     presentCall: () => ({ card: 'generic', kind: 'read', title: '搜索智链订阅' }),

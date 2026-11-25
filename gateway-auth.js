@@ -2,6 +2,7 @@ import {
   subscriptionArgs,
   subscriptionPage,
   extractRawSubscriptionIds,
+  extractRawDataPayload,
   normalizeTrackingPart,
   mergeTrackingParts,
   attachTrackingToRow,
@@ -118,7 +119,7 @@ export function searchSubscriptions(token, args, send = gateway, options = {}) {
       const rawId = extractRawSubscriptionIds(raw)[0];
       if (rawId) {
         const actions = args.business_type === 'SEA'
-          ? ['detail', 'milestones', 'arrival_analysis', 'warnings']
+          ? ['detail', 'milestones', 'arrival_analysis', 'warnings', 'booking']
           : ['detail'];
         const calls = actions.map(async (action, index) => {
           const rpcId = 3 + index;
@@ -126,16 +127,27 @@ export function searchSubscriptions(token, args, send = gateway, options = {}) {
           try {
             const subReply = await post({ id: rpcId, method: 'tools/call', params: { name: 'sky-vigil-tracking', arguments: subArgs } });
             if (!subReply.ok) return null;
-            return normalizeTrackingPart(await payload(subReply, rpcId), subArgs);
+            const subRaw = await payload(subReply, rpcId);
+            return {
+              action,
+              part: normalizeTrackingPart(subRaw, subArgs),
+              rawData: extractRawDataPayload(subRaw),
+            };
           } catch {
             return null;
           }
         });
-        const parts = (await Promise.all(calls)).filter(Boolean);
+        const settled = (await Promise.all(calls)).filter(Boolean);
+        const parts = settled.map(item => item.part).filter(Boolean);
         if (parts.length) {
           const merged = mergeTrackingParts(parts)[0];
           page.rows[0] = attachTrackingToRow(page.rows[0], merged);
         }
+        const rawTracking = {};
+        for (const item of settled) {
+          if (item.rawData) rawTracking[item.action] = item.rawData;
+        }
+        if (Object.keys(rawTracking).length) page.rawTracking = rawTracking;
       }
     }
     return page;

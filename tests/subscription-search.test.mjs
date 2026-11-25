@@ -131,15 +131,42 @@ test('single SEA match enriches tracking when enrichTracking is enabled without 
     if (msg.method === 'initialize') return Response.json({ id: 1, result: { protocolVersion: '2025-06-18' } });
     if (msg.method === 'notifications/initialized') return new Response(null, { status: 202 });
     if (msg.params?.name === 'sky-vigil-find-subscriptions') {
-      return Response.json({ id: msg.id, result: mcpText({ content: [{ id: '12345', masterBillNo: 'OOLU2175633840', pol: 'Yantian', pod: 'Houston' }], last: true }) });
+      return Response.json({
+        id: msg.id,
+        result: mcpText({
+          content: [{
+            id: '12345',
+            masterBillNo: 'OOLU2175633840',
+            pol: 'Yantian',
+            pod: 'Houston',
+            phone: '13800138000',
+            customBusinessField: 'VIP-PRIORITY',
+            containers: Array.from({ length: 15 }, (_, i) => ({ containerNo: `OOLU00000${i}`, sealNo: `SL${i}` })),
+          }],
+          last: true,
+        }),
+      });
     }
     if (msg.params?.name === 'sky-vigil-tracking' && msg.params.arguments.action === 'arrival_analysis') {
-      return Response.json({ id: msg.id, result: mcpText({ arrivalStatusText: '未到港', arrivalTimeHintText: '距离到港还有 13 天' }) });
+      return Response.json({ id: msg.id, result: mcpText({ arrivalStatusText: '未到港', arrivalTimeHintText: '距离到港还有 13 天', firstEta: { time: 1796603400000, zone: 'UTC-8' } }) });
+    }
+    if (msg.params?.name === 'sky-vigil-tracking' && msg.params.arguments.action === 'booking') {
+      return Response.json({ id: msg.id, result: mcpText({ bookingNo: 'BK999', cutoffRemark: 'CY Cutoff 18:00' }) });
     }
     return Response.json({ id: msg.id, result: mcpText({}) });
   }, { enrichTracking: true });
   assert.equal(res.state, 'ready');
   assert.equal(res.rows.length, 1);
   assert.equal('id' in res.rows[0], false);
+  assert.equal(res.rows[0].containers.length, 15);
   assert.equal(res.rows[0].tracking.arrival.hintText, '距离到港还有 13 天');
+  // Verify full raw business payload is preserved without omitting fields or truncating arrays
+  assert.equal(res.rawRecords.length, 1);
+  assert.equal(res.rawRecords[0].customBusinessField, 'VIP-PRIORITY');
+  assert.equal(res.rawRecords[0].containers.length, 15);
+  assert.equal(res.rawRecords[0].containers[14].sealNo, 'SL14');
+  assert.equal('id' in res.rawRecords[0], false);
+  assert.equal('phone' in res.rawRecords[0], false);
+  assert.equal(res.rawTracking.booking.cutoffRemark, 'CY Cutoff 18:00');
+  assert.equal(res.rawTracking.arrival_analysis.firstEta.formattedTime, '2026-12-06 16:30 (UTC-8)');
 });

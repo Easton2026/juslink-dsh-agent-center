@@ -309,22 +309,200 @@ function OverviewKpiCard({ item }) {
           h('strong', { className: 'jlc-kpi-val' }, String(cat.count))))),
     item.categories.length > 0 && h('p', { className: 'jlc-kpi-note' }, '各状态分类可能存在交叉重叠，不直接相加等于总量。'));
 }
+function readDshTheme() {
+  const root = typeof document !== 'undefined' ? document.documentElement : null;
+  const body = typeof document !== 'undefined' ? document.body : null;
+  const attr = root?.getAttribute?.('data-theme') || body?.getAttribute?.('data-theme') || '';
+  if (attr === 'dark') return 'dark';
+  if (attr === 'light') return 'light';
+  if (root?.classList?.contains('dark') || body?.classList?.contains('dark')) return 'dark';
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
+  return 'light';
+}
+function useDshTheme() {
+  const [theme, setTheme] = useState(readDshTheme);
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
+    const sync = () => setTheme(readDshTheme());
+    const observer = new MutationObserver(sync);
+    if (document.documentElement) observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    const mq = typeof window !== 'undefined' ? window.matchMedia?.('(prefers-color-scheme: dark)') : null;
+    mq?.addEventListener?.('change', sync);
+    return () => {
+      observer.disconnect();
+      mq?.removeEventListener?.('change', sync);
+    };
+  }, []);
+  return theme;
+}
+function sanitizeInlineCardHtml(rawHtml) {
+  let html = String(rawHtml ?? '').trim();
+  const styles = [];
+  html = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_m, css) => {
+    const cleaned = String(css || '')
+      .replace(/<\/?[^>]+>/g, '')
+      .replace(/@import\b[^;]*;?/gi, '')
+      .replace(/url\(\s*['"]?\s*https?:[^)]*\)/gi, 'none')
+      .trim();
+    if (cleaned) styles.push(cleaned);
+    return '';
+  });
+  const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  if (bodyMatch) html = bodyMatch[1];
+  html = html
+    .replace(/<!doctype[^>]*>/gi, '')
+    .replace(/<\/?(html|head|body|meta|title|base|link)\b[^>]*>/gi, '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<(iframe|object|embed|form)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<(iframe|object|embed|form|img)\b[^>]*\/?>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/(href|src)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*')/gi, '$1="#"');
+  const styleBlock = styles.length ? `<style>${styles.join('\n')}</style>\n` : '';
+  return (styleBlock + html.trim()).trim();
+}
+function buildInlineCardDocument({ title, html, theme, frameId, withInteractiveScript }) {
+  const safeTitle = String(title || '智链业务视图').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+  const bodyContent = sanitizeInlineCardHtml(html);
+  const interactiveScript = withInteractiveScript && frameId
+    ? `<script>(function(){var id=${JSON.stringify(frameId)};function send(){var h=Math.max(document.documentElement.scrollHeight||0,document.body?document.body.scrollHeight:0);parent.postMessage({type:'juslink-frame-height',id:id,height:h},'*');}if(typeof ResizeObserver!=='undefined'){new ResizeObserver(send).observe(document.documentElement);}document.addEventListener('toggle',function(){setTimeout(send,0);},true);document.addEventListener('click',function(e){var btn=e.target&&e.target.closest?e.target.closest('[data-copy]'):null;if(!btn)return;var val=btn.getAttribute('data-copy')||'';if(!val)return;parent.postMessage({type:'juslink-frame-copy',id:id,text:val},'*');var prev=btn.textContent;btn.textContent='已复制';btn.classList.add('copied');setTimeout(function(){btn.textContent=prev||'复制';btn.classList.remove('copied');},1500);});window.addEventListener('load',send);send();})();</script>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="zh-CN" data-theme="${theme === 'dark' ? 'dark' : 'light'}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${safeTitle}</title>
+<style>${DESIGN_SYSTEM_CSS}</style>
+</head>
+<body>
+${bodyContent}
+${interactiveScript}
+</body>
+</html>`;
+}
+function DynamicCardFrame({ item, sessionId, theme }) {
+  const iframeRef = useRef(null);
+  const frameId = 'jlc-frame-' + item.id;
+  const [height, setHeight] = useState(320);
+  const [saving, setSaving] = useState(false);
+  const [saveNote, setSaveNote] = useState('');
+  const [expanded, setExpanded] = useState(false);
+  const srcDoc = buildInlineCardDocument({ title: item.title, html: item.html, theme, frameId, withInteractiveScript: true });
+  const modalDoc = expanded ? buildInlineCardDocument({ title: item.title, html: item.html, theme, frameId: frameId + '-modal', withInteractiveScript: true }) : '';
+
+  useEffect(() => {
+    function onMessage(event) {
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.type === 'juslink-frame-height' && data.id === frameId && event.source === iframeRef.current?.contentWindow) {
+        const next = Math.min(Math.max(Number(data.height) || 220, 140), 2400);
+        setHeight(next);
+      } else if (data.type === 'juslink-frame-copy' && (data.id === frameId || data.id === frameId + '-modal') && typeof data.text === 'string' && data.text) {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(data.text).catch(() => {});
+        }
+      }
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [frameId]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    function onKey(event) {
+      if (event.key === 'Escape') { event.stopPropagation(); setExpanded(false); }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [expanded]);
+
+  async function saveToCenter() {
+    if (saving) return;
+    setSaving(true);
+    setSaveNote('');
+    try {
+      const response = await fetch('juslink-artifacts/save', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'x-juslink-panel': '1', 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId, title: item.title, summary: item.summary, html: item.html }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result?.saved) throw new Error(result?.error || '保存失败');
+      setSaveNote('已保存到成果中心 ✓');
+    } catch (err) {
+      setSaveNote(err?.message || '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return h('article', { className: 'jlc-dyn-card' },
+    h('header', { className: 'jlc-dyn-bar' },
+      h('div', { className: 'jlc-dyn-title' },
+        h('span', { className: 'jlc-kind-tag' }, '智链业务视图'),
+        h('strong', null, item.title || '业务结果')),
+      h('div', { className: 'jlc-dyn-actions' },
+        saveNote && h('span', { className: 'jlc-dyn-status', role: 'status' }, saveNote),
+        button(saving ? '保存中…' : '保存到成果中心', saveToCenter, { className: 'jlc-dyn-btn', disabled: saving || !sessionId }),
+        button('放大查看', () => setExpanded(true), { className: 'jlc-dyn-btn' }))),
+    h('iframe', {
+      ref: iframeRef,
+      className: 'jlc-dynamic-frame',
+      title: item.title || '智链业务视图',
+      sandbox: 'allow-scripts',
+      referrerPolicy: 'no-referrer',
+      srcDoc,
+      style: { height: height + 'px' },
+    }),
+    expanded && h('div', { className: 'jlc-dyn-modal-backdrop', onClick: e => { if (e.target === e.currentTarget) setExpanded(false); } },
+      h('dialog', { open: true, className: 'jlc-dyn-modal', 'aria-label': item.title || '智链业务视图' },
+        h('header', { className: 'jlc-dyn-bar' },
+          h('strong', null, item.title || '智链业务视图'),
+          button('关闭', () => setExpanded(false), { className: 'jlc-dyn-btn' })),
+        h('iframe', {
+          className: 'jlc-dyn-modal-frame',
+          title: (item.title || '智链业务视图') + '（放大）',
+          sandbox: 'allow-scripts',
+          referrerPolicy: 'no-referrer',
+          srcDoc: modalDoc,
+        }))));
+}
+function CardSkeleton() {
+  return h('div', { className: 'jlc-dyn-skeleton', role: 'status', 'aria-live': 'polite' },
+    h('span', { className: 'jlc-dyn-pulse', 'aria-hidden': true }),
+    h('span', null, '正在生成智链业务视图…'));
+}
 function matchMcpTool(name, suffix) {
   return typeof name === 'string' && name.startsWith('mcp__') && name.endsWith('__' + suffix);
 }
-function ShipmentCards({ turn, chat }) {
+function ShipmentCards({ turn, chat, sessionId }) {
   const snapshot = useSyncExternalStore(chat.subscribe, chat.getSnapshot);
+  const theme = useDshTheme();
+  const dynamicCards = [];
+  let pendingRender = false;
   const pages = [];
   const trackingParts = [];
   const overviewParts = [];
+  function parseJson(raw) {
+    try { return JSON.parse(raw); } catch { return null; }
+  }
   function parseArgs(block) {
-    try { return JSON.parse(block.call?.argsRaw); } catch { return {}; }
+    return parseJson(block.call?.argsRaw) || {};
   }
   function collect(block) {
-    if (block?.kind === 'tool-result' && !block.isError) {
-      if (block.name === 'juslink_search_shipment') {
-        let page;
-        try { page = JSON.parse(block.content.find(c => c.type === 'text')?.text); } catch {}
+    if (!block) return;
+    if (block.kind === 'tool-result' && !block.isError) {
+      if (block.name === 'juslink_render_card') {
+        const resultPayload = parseJson(block.content?.find(c => c.type === 'text')?.text);
+        const argsPayload = parseJson(block.call?.argsRaw);
+        const html = argsPayload?.html || resultPayload?.html;
+        const title = argsPayload?.title || resultPayload?.title || '智链业务视图';
+        const summary = argsPayload?.summary || resultPayload?.summary || '';
+        if (html) dynamicCards.push({ id: block.callId || String(dynamicCards.length), title, summary, html });
+      } else if (block.name === 'juslink_search_shipment') {
+        const page = parseJson(block.content?.find(c => c.type === 'text')?.text);
         if (page?.state === 'ready' && Array.isArray(page.rows)) pages.push({ ...page, id: block.callId });
       } else if (matchMcpTool(block.name, 'sky-vigil-find-subscriptions')) {
         const page = normalizeSearchPage(block, { filters: {}, page: 0, ...parseArgs(block) });
@@ -336,12 +514,23 @@ function ShipmentCards({ turn, chat }) {
         const part = JuslinkCards.normalizeOverviewPart(block, parseArgs(block));
         if (part) overviewParts.push(part);
       }
+    } else if (block.kind === 'tool-call' && block.name === 'juslink_render_card') {
+      pendingRender = true;
     }
-    for (const child of block?.subCalls || []) collect(child);
+    for (const child of block.subCalls || []) collect(child);
   }
   for (const key of snapshot?.locations.getTurn(turn.turn) || []) {
     const node = snapshot.nodes.get(key);
-    if (node?.kind === 'tool-call') collect(node.data.root);
+    if (node?.kind === 'tool-call') {
+      const root = node.data?.root;
+      if (root?.name === 'juslink_render_card' && root?.kind !== 'tool-result') pendingRender = true;
+      collect(root);
+    }
+  }
+  if (dynamicCards.length || pendingRender) {
+    return h('div', { className: 'jlc-chat-results', 'aria-label': '智链业务结果卡片' },
+      ...dynamicCards.map(item => h(DynamicCardFrame, { key: 'dyn-' + item.id, item, sessionId, theme })),
+      pendingRender && h(CardSkeleton));
   }
   const trackingCards = JuslinkCards.mergeTrackingParts(trackingParts);
   const overviewCards = JuslinkCards.mergeOverviewParts(overviewParts);
@@ -781,7 +970,7 @@ exports.apply = function apply(ctx) {
   }, 'juslink: scoped styles');
   ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
     name: 'conversation.chat.turnTail', id: 'juslink-subscriptions',
-    inject: sessionId => ({ chat: ctx.uiConversation.binding(ctx.sessions.binding(sessionId)).target('chat') }),
+    inject: sessionId => ({ chat: ctx.uiConversation.binding(ctx.sessions.binding(sessionId)).target('chat'), sessionId }),
   }, ShipmentCards));
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, BoundPanel));
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, label: '智链平台', order: 5 }, Icon));

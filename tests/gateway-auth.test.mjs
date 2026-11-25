@@ -62,6 +62,8 @@ test('loopback callback validates state and PKCE then verifies tools; refresh is
   // The SIT gateway still lists tools for an expired token. Refresh before that probe.
   const expired = 'a.' + Buffer.from(JSON.stringify({ exp: 1 })).toString('base64url') + '.b';
   values.set('JUSLINK_MCP_TOKEN', expired);
+  const accRec = values.get('juslink-agent-center/uat-accounts');
+  if (accRec?.payload?.list?.[0]) accRec.payload.list[0].token = expired;
   const results = await Promise.all([auth.status(), auth.status()]);
   assert.ok(results.every(result => result.state === 'authorized'));
   assert.equal(calls.filter(([url]) => url === 'token').length, 2);
