@@ -902,7 +902,42 @@ async function authRequest(action, signal, data) {
   return response.json();
 }
 
-function AuthorizationCard({ title, detail, children, onDismiss }) {
+function AuthGlyph({kind}) {
+  const paths = {
+    close:'M6 6l12 12M18 6 6 18',
+    copy:'M8 8h12v12H8zM16 8V4H4v12h4',
+    external:'M7 17 17 7M7 7h10v10',
+    building:'M4 21V5l8-3v19M12 9h8v12M2 21h20M7 8h2M7 12h2M7 16h2M15 12h2M15 16h2',
+    shield:'m12 3 8 3v5c0 5-8 10-8 10S4 16 4 11V6l8-3Z M9 12l2 2 4-4',
+    clock:'M12 7v5l3 2',
+    alert:'M12 8v5M12 16h.01',
+  };
+  return h('svg',{width:20,height:20,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.65,strokeLinecap:'round',strokeLinejoin:'round','aria-hidden':true},
+    (kind==='clock'||kind==='alert') && h('circle',{cx:12,cy:12,r:9}),
+    h('path',{d:paths[kind] || paths.shield}));
+}
+function AuthorizationCopy({url}) {
+  const [copied,setCopied]=useState(false);
+  const [failed,setFailed]=useState(false);
+  const active=useRef(true);
+  const timer=useRef(null);
+  useEffect(()=>{active.current=true;return()=>{active.current=false;clearTimeout(timer.current);};},[url]);
+  async function copy() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(url);
+      if(!active.current)return;
+      setFailed(false);setCopied(true);clearTimeout(timer.current);
+      timer.current=setTimeout(()=>{if(active.current)setCopied(false);},1800);
+    } catch {if(active.current)setFailed(true);}
+  }
+  return h('div',{className:'jlc-auth-copy'},
+    h('button',{type:'button',className:'jlc-auth-text-action',onClick:copy},h(AuthGlyph,{kind:'copy'}),copied?'已复制':'复制授权链接'),
+    failed && h('div',{className:'jlc-auth-copy-fallback'},
+      h('p',{role:'status'},'无法自动复制，请手动复制以下链接。'),
+      h('input',{readOnly:true,value:url,'aria-label':'授权链接',onFocus:event=>event.target.select()})));
+}
+function AuthorizationCard({ title, detail, children, onDismiss, kind='shield' }) {
   const dialog = useRef(null);
   const modal = Boolean(onDismiss);
   useEffect(() => {
@@ -916,16 +951,17 @@ function AuthorizationCard({ title, detail, children, onDismiss }) {
     });
   }, [modal]);
   const card = h(modal ? 'dialog' : 'section', modal ? {
-    ref: dialog, open: true, tabIndex: -1, className: 'jlc-auth-card jlc-auth-dialog', 'aria-label': title,
+    ref: dialog, open: true, tabIndex: -1, className: 'jlc-auth-card jlc-auth-dialog', 'aria-label': title, 'aria-modal':true,
     onKeyDown: event => {
       if (event.key === 'Escape') { event.stopPropagation(); event.preventDefault(); onDismiss(); }
     },
   } : { className: 'jlc-auth-card' },
-      h('header', { className: 'jlc-auth-brand' },
-        h('img', { src: LOGO, alt: 'JusBuddy' }),
-        h('span', null, 'JusBuddy 授权')),
+      h('header', { className: 'jlc-auth-heading' },
+        h('span',{className:'jlc-auth-symbol'},h(AuthGlyph,{kind})),
+        h('h1',{role:'status'},title),
+        modal && h('button',{type:'button',className:'jlc-auth-close',onClick:onDismiss,'aria-label':'关闭授权弹窗',title:'关闭'},h(AuthGlyph,{kind:'close'}))),
       h('div', { className: 'jlc-auth-body' },
-        h('h1', { role: 'status' }, title), h('p', null, detail), children));
+        h('p', null, detail), children));
   return modal ? h('div', { className: 'jlc-root jlc-auth-overlay' }, card) : h('main', { className: 'jlc-root jlc-auth' }, card);
 }
 function WorkspacePanel({ ctx }) {
@@ -1010,12 +1046,12 @@ function WorkspacePanel({ ctx }) {
     if (cancel) void authRequest('cancel').catch(() => {});
   }
 
-  function startAuthorization() {
+  function startAuthorization(mode = 'required') {
     if (active.current) return;
     const controller = new AbortController();
     active.current = controller;
     setAccountError('');
-    setDialog({ state: 'starting' });
+    setDialog({ state: 'starting', mode });
     async function run(action) {
       try {
         const result = await authRequest(action, controller.signal);
@@ -1027,9 +1063,9 @@ function WorkspacePanel({ ctx }) {
           timer.current = setTimeout(() => void run('progress'), 1200);
           return;
         }
-        setDialog(result.state === 'authorized' ? null : result);
+        setDialog(result.state === 'authorized' ? null : { ...result, mode });
       } catch {
-        if (!controller.signal.aborted) setDialog({ state: 'unavailable' });
+        if (!controller.signal.aborted) setDialog({ state: 'unavailable', mode });
       }
       if (!controller.signal.aborted) active.current = null;
     }
@@ -1041,16 +1077,20 @@ function WorkspacePanel({ ctx }) {
     const waiting = dialog.state === 'waiting';
     const starting = dialog.state === 'starting';
     const needed = dialog.state === 'required';
+    const adding = dialog.mode === 'add';
     authDialog = h(AuthorizationCard, {
       onDismiss: dismiss,
-      title: starting ? '正在准备登录' : waiting ? '请在浏览器中完成授权' : needed ? '请先授权使用智链' : '暂时无法完成授权',
-      detail: starting ? '登录页即将打开。' : waiting ? '完成授权后可返回 JusBuddy。' : needed ? '使用智链账号授权后继续当前操作。' : dialog.detail || '请稍后重试。',
+      kind: starting || waiting ? (adding?'building':'clock') : needed?'shield':'alert',
+      title: starting ? (adding?'新增租户授权':'正在准备登录') : waiting ? (adding?'新增租户授权':'等待授权') : needed ? '请先授权使用智链' : '暂时无法完成授权',
+      detail: starting ? '正在准备授权链接，请稍候。' : waiting ? (adding?'使用智链账号登录，选择本次需要授权的租户，即可连接对应的业务服务。':'请在浏览器中完成授权，成功后返回 JusBuddy。') : needed ? '使用智链账号授权后，即可继续当前操作。' : dialog.detail || '请稍后重试。',
     }, h('div', { className: 'jlc-auth-actions' },
-      waiting && dialog.url && h('a', { className: 'jlc-auth-action main', href: dialog.url, target: '_blank', rel: 'noopener noreferrer' }, '打开登录页'),
-      !waiting && !starting && button(needed ? '去授权' : '重试', startAuthorization, { className: 'jlc-auth-action main' }),
-      button('取消', dismiss, { className: 'jlc-auth-action secondary' })));
+      waiting && dialog.url && h('a', { className: 'jlc-auth-action main', href: dialog.url, target: '_blank', rel: 'noopener noreferrer' }, '前往授权', h(AuthGlyph,{kind:'external'})),
+      waiting && dialog.url && h(AuthorizationCopy,{key:dialog.url,url:dialog.url}),
+      waiting && !dialog.url && h('p',{className:'jlc-auth-status',role:'status'},'正在等待授权结果…'),
+      starting && h('p',{className:'jlc-auth-status',role:'status'},'正在准备授权…'),
+      !waiting && !starting && button(needed ? '前往授权' : '重试', () => startAuthorization(adding?'add':'required'), { className: 'jlc-auth-action main' })));
   }
-  return h(Panel, { ctx, workspace: workspace || { tenants: [], activeTenant: null }, beforeLaunch, authDialog, accountBusy, accountError, changeAccount, onAdd: startAuthorization });
+  return h(Panel, { ctx, workspace: workspace || { tenants: [], activeTenant: null }, beforeLaunch, authDialog, accountBusy, accountError, changeAccount, onAdd: () => startAuthorization('add') });
 }
 function Entry({ ctx }) {
   const store = ctx.layout.panelInfo;
