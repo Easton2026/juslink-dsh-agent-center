@@ -441,7 +441,7 @@ function DynamicCardFrame({ item, sessionId, theme }) {
   return h('article', { className: 'jlc-dyn-card' },
     h('header', { className: 'jlc-dyn-bar' },
       h('div', { className: 'jlc-dyn-title' },
-        h('span', { className: 'jlc-kind-tag' }, '智链业务视图'),
+        h('span', { className: 'jlc-kind-tag' }, 'JusBuddy'),
         h('strong', null, item.title || '业务结果')),
       h('div', { className: 'jlc-dyn-actions' },
         saveNote && h('span', { className: 'jlc-dyn-status', role: 'status' }, saveNote),
@@ -812,7 +812,7 @@ function MyQueriesPage({ ctx, onGoHome }) {
           button('去生成一份成果', start, { disabled: busy, className: 'jlc-primary' })),
     h('p', { className: 'jlc-note' }, '查询记录保存在本机浏览器存储；成果以 HTML 文件保存在当前 DSH 工作区的 juslink-artifacts 目录，用禁用脚本的沙箱 iframe 渲染，脚本、表单和弹窗不会执行。'));
 }
-function TenantMenu({ tenants, active, onSelect, onAdd }) {
+function TenantMenu({ tenants, active, onSelect, onAdd, onRemove }) {
   const [open, toggle] = useState(false);
   const root = useRef(null);
   const trigger = useRef(null);
@@ -830,58 +830,49 @@ function TenantMenu({ tenants, active, onSelect, onAdd }) {
     };
   }, [open]);
   return h('div', { className: 'jlc-tenant', ref: root },
-    button(h(React.Fragment, null, h('span', null, '当前租户：'), h('strong', null, active?.name || '名称待获取'), h('i', { 'aria-hidden': true })),
+    button(h(React.Fragment, null, h('span', null, '当前企业：'), h('strong', null, active?.name || '名称待获取'), h('i', { 'aria-hidden': true })),
       () => toggle(!open), { ref: trigger, className: 'jlc-tenant-trigger', 'aria-expanded': open }),
     open && h('div', { className: 'jlc-tenant-menu' },
-      ...tenants.map(item => button(h(React.Fragment, null, h('span', null, item.name), item.id === active?.id && h('span', { 'aria-label': '当前租户' }, '✓')),
-        () => { toggle(false); onSelect(item); }, { key: item.id, className: 'jlc-tenant-row', 'aria-pressed': item.id === active?.id })),
-      button('＋ 新增租户授权', () => { trigger.current?.focus({ preventScroll: true }); toggle(false); onAdd(); }, { className: 'jlc-tenant-add' })));
+      ...tenants.map(item => h('div', { key: item.id, className: 'jlc-tenant-row', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px' } },
+        button(h(React.Fragment, null,
+          h('span', null, item.name),
+          item.account && h('span', { style: { fontSize: '12px', color: '#656565', marginLeft: '6px' } }, '(' + item.account + ')'),
+          item.id === active?.id && h('span', { 'aria-label': '当前企业', style: { marginLeft: '6px', color: '#101cad', fontWeight: 'bold' } }, '✓')),
+          () => { toggle(false); onSelect(item); }, { style: { background: 'none', border: '0', textAlign: 'left', flex: 1, cursor: 'pointer', padding: '4px 0' }, 'aria-pressed': item.id === active?.id }),
+        onRemove && tenants.length > 1 && button('移除', e => { e.stopPropagation(); onRemove(item); }, { style: { background: 'none', border: '0', color: '#c00', fontSize: '12px', cursor: 'pointer', padding: '2px 4px', opacity: 0.75 }, title: '移除此企业授权' }))),
+      button('＋ 新增企业/租户授权', () => { trigger.current?.focus({ preventScroll: true }); toggle(false); onAdd(); }, { className: 'jlc-tenant-add' })));
 }
-const demoTenants = [
-  { id: 'sichuan', name: '四川小神厨物流有限公司' },
-  { id: 'chengdu', name: '成都锦川供应链有限公司' },
-  { id: 'chongqing', name: '重庆渝江物流有限公司' },
-];
-function DemoTenantAuthorization({ available, onClose, onGrant }) {
-  const [choosing, setChoosing] = useState(false);
-  const [choice, select] = useState(available[0]?.id);
-  const item = available.find(t => t.id === choice);
-  return h(AuthorizationCard, { onDismiss: onClose, title: choosing ? '选择要授权的演示租户' : '授权使用智链工作台',
-    detail: choosing ? (available.length ? '确认后将进入所选租户的工作台。' : '所有演示租户均已添加。') : '使用你的智链账号登录并授权，即可进入工作台。' },
-    choosing && available.length > 0 && h('div', { className: 'jlc-tenant-choices' },
-      ...available.map(t => h('label', { key: t.id }, h('input', { type: 'radio', name: 'juslink-demo-tenant',
-        checked: t.id === choice, onChange: () => select(t.id) }), t.name))),
-    h('div', { className: 'jlc-auth-actions' },
-      !choosing && button('去授权', () => setChoosing(true), { className: 'jlc-auth-action main' }),
-      choosing && item && button('确认添加', () => onGrant(item), { className: 'jlc-auth-action main' }),
-      button('取消', onClose, { className: 'jlc-auth-action secondary' })));
-}
-function Panel({ ctx, tools = [] }) {
-  const [tenants, setTenants] = useState(() => [demoTenants[0]]);
-  const [active, onSelect] = useState(demoTenants[0]);
-  const [adding, setAdding] = useState(false);
-  const onAdd = () => setAdding(true);
-  function grant(item) {
-    setTenants(previous => previous.some(t => t.id === item.id) ? previous : [...previous, item]);
-    onSelect(item);
-    setAdding(false);
-  }
+function Panel({ ctx, tools = [], authState, onRefreshAuth }) {
+  const tenants = authState?.tenants || (authState?.activeTenant ? [authState.activeTenant] : []);
+  const active = authState?.activeTenant || tenants[0];
   const [tab, updateTab] = useState(rememberedTab);
   const setTab = value => { rememberedTab = value; updateTab(value); };
   const tabs = [['home', '工具'], ['queries', '历史'], ['skills', '技能']];
-  return h('div', { className: 'jlc-panel-frame' },
-    h('div', { className: 'jlc-root' + (tab === 'home' ? ' jlc-home' : ''), inert: adding || undefined },
-    h('header', { className: 'jlc-header' },
-      h('div', { className: 'jlc-brand' }, h('img', { src: LOGO, alt: 'JusLink' }), h('span', { className: 'jlc-brand-name' }, '准时达智链平台')),
-      h(TenantMenu, { tenants, active, onSelect, onAdd })),
 
-    h('nav', { className: 'jlc-tabs jlc-workspace-tabs', 'aria-label': '智链平台工作区' }, ...tabs.map(([id, label]) => button(label, () => setTab(id), { key: id, 'aria-current': tab === id ? 'page' : undefined, className: tab === id ? 'selected' : '' }))),
+  async function handleSelect(item) {
+    if (item.id === active?.id) return;
+    const res = await authRequest('switch-tenant', null, { tenantId: item.id });
+    if (res.state === 'authorized' && onRefreshAuth) onRefreshAuth(res);
+  }
+
+  async function handleRemove(item) {
+    if (!window.confirm('确认移除企业【' + item.name + '】的授权凭证吗？')) return;
+    const res = await authRequest('remove-tenant', null, { tenantId: item.id });
+    if (onRefreshAuth) onRefreshAuth(res);
+  }
+
+  return h('div', { className: 'jlc-panel-frame' },
+    h('div', { className: 'jlc-root' + (tab === 'home' ? ' jlc-home' : '') },
+    h('header', { className: 'jlc-header' },
+      h('div', { className: 'jlc-brand' }, h('img', { src: LOGO, alt: 'JusBuddy' }), h('span', { className: 'jlc-brand-name' }, 'JusBuddy')),
+      h(TenantMenu, { tenants, active, onSelect: handleSelect, onAdd: () => authRequest('start').then(res => { if (res.url) window.open(res.url, '_blank', 'noopener,noreferrer'); if (onRefreshAuth) onRefreshAuth(res); }), onRemove: handleRemove })),
+
+    h('nav', { className: 'jlc-tabs jlc-workspace-tabs', 'aria-label': 'JusBuddy 工作区' }, ...tabs.map(([id, label]) => button(label, () => setTab(id), { key: id, 'aria-current': tab === id ? 'page' : undefined, className: tab === id ? 'selected' : '' }))),
     h('main', { className: 'jlc-content' },
       storageError && h('p', { role: 'alert' }, '本机存储不可用，记录可能无法保留。'),
       tab === 'home' && h(CapabilityPage, { ctx, tools }),
       tab === 'queries' && h(MyQueriesPage, { ctx, onGoHome: () => setTab('home') }),
-      tab === 'skills' && h(SkillPage, { ctx }))),
-    adding && h(DemoTenantAuthorization, { available: demoTenants.filter(t => !tenants.some(granted => granted.id === t.id)), onClose: () => setAdding(false), onGrant: grant }));
+      tab === 'skills' && h(SkillPage, { ctx }))));
 }
 async function authRequest(action, signal, data) {
   const response = await fetch('juslink-auth/' + action, { method: 'POST', credentials: 'same-origin',
@@ -914,8 +905,8 @@ function AuthorizationCard({ title, detail, children, onDismiss }) {
     },
   } : { className: 'jlc-auth-card' },
       h('header', { className: 'jlc-auth-brand' },
-        h('img', { src: LOGO, alt: 'JusLink' }),
-        h('span', null, '工作台授权')),
+        h('img', { src: LOGO, alt: 'JusBuddy' }),
+        h('span', null, 'JusBuddy 授权')),
       h('div', { className: 'jlc-auth-body' },
         h('h1', { role: 'status' }, title), h('p', null, detail), children));
   return modal ? h('div', { className: 'jlc-root jlc-auth-overlay' }, card) : h('main', { className: 'jlc-root jlc-auth' }, card);
@@ -941,12 +932,19 @@ function AuthorizedPanel({ ctx }) {
     return () => { controller.abort(); clearTimeout(timer); };
   }, [request]);
   function begin(action) { setResult({ state: 'checking' }); setRequest({ action }); }
-  if (result.state === 'authorized') return h(Panel, { ctx, tools: result.tools });
+  if (result.state === 'authorized') return h(Panel, { ctx, tools: result.tools, authState: result, onRefreshAuth: updated => {
+    if (updated?.state === 'waiting') {
+      setResult(prev => ({ ...prev, ...updated }));
+      setRequest({ action: 'progress' });
+    } else if (updated) {
+      setResult(updated);
+    }
+  } });
   const waiting = result.state === 'waiting';
   const needed = result.state === 'required';
   const checking = result.state === 'checking';
-  return h(AuthorizationCard, { title: checking ? '正在检查授权' : needed ? '授权使用智链工作台' : waiting ? '请在浏览器中完成授权' : '暂时无法确认授权状态',
-    detail: checking ? '正在向智链平台确认你的访问权限。' : needed ? '使用你的智链账号登录并授权，即可进入工作台。' : waiting ? '授权成功后，这里会自动进入工作台。' : result.detail || '未能完成智链网关授权检查，请重试。' },
+  return h(AuthorizationCard, { title: checking ? '正在检查授权' : needed ? '授权使用 JusBuddy' : waiting ? '请在浏览器中完成授权' : '暂时无法确认授权状态',
+    detail: checking ? '正在向智链平台确认你的访问权限。' : needed ? '使用你的智链账号登录并授权，即可进入 JusBuddy 工作台。' : waiting ? '授权成功后，这里会自动进入 JusBuddy 工作台。' : result.detail || '未能完成智链网关授权检查，请重试。' },
         !checking && h('div', { className: 'jlc-auth-actions' },
           waiting && result.url && h('a', { className: 'jlc-auth-action main', href: result.url, target: '_blank', rel: 'noopener noreferrer' },
             '打开登录页', h('span', { 'aria-hidden': true }, '↗')),
@@ -973,7 +971,7 @@ exports.apply = function apply(ctx) {
     inject: sessionId => ({ chat: ctx.uiConversation.binding(ctx.sessions.binding(sessionId)).target('chat'), sessionId }),
   }, ShipmentCards));
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, BoundPanel));
-  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, label: '智链平台', order: 5 }, Icon));
+  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, label: 'JusBuddy', order: 5 }, Icon));
   ctx.effect(() => {
     persist();
     return () => {
